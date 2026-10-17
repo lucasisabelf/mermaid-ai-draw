@@ -1,6 +1,7 @@
 import mermaid from 'mermaid';
 import './style.css';
 import { Canvas, DND_TYPE } from './canvas';
+import { downloadPng, downloadSvg } from './export';
 import { parseMermaid, toMermaid, type Diagram } from './model';
 import { Store } from './store';
 import { ServerSync } from './sync';
@@ -92,9 +93,17 @@ function refreshDerived(fromCode: boolean) {
   schedulePreview(code);
 }
 
+// Sem nada desenhado não há o que exportar.
+function updateExportButtons() {
+  for (const id of ['#btn-svg', '#btn-png']) $<HTMLButtonElement>(id).disabled = !store.diagram.nodes.length;
+}
+
 store.subscribe((change) => {
   updateHint();
-  if (change.source !== 'view') refreshDerived(change.source === 'code');
+  if (change.source !== 'view') {
+    refreshDerived(change.source === 'code');
+    updateExportButtons();
+  }
 });
 
 // ---- código → canvas -----------------------------------------------------
@@ -168,10 +177,26 @@ $('#btn-copy').addEventListener('click', async () => {
   setTimeout(() => (btn.textContent = 'Copiar código'), 1500);
 });
 
+$('#btn-svg').addEventListener('click', () => {
+  const out = canvas.exportSvg();
+  if (out) downloadSvg(out.svg);
+});
+
+$('#btn-png').addEventListener('click', async () => {
+  const out = canvas.exportSvg();
+  if (!out) return;
+  try {
+    await downloadPng(out.svg, out.width, out.height);
+  } catch (err) {
+    alert(`Não foi possível exportar o PNG: ${(err as Error).message}`);
+  }
+});
+
 $('#btn-clear').addEventListener('click', () => {
   if (store.diagram.nodes.length && !confirm('Apagar todo o diagrama?')) return;
   store.replace({ nodes: [], edges: [] }, 'local');
 });
 
 updateHint();
+updateExportButtons();
 refreshDerived(false);

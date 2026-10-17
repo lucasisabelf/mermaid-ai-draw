@@ -1,3 +1,4 @@
+import { EXPORT_CSS } from './export';
 import { cleanOwner, OWNER_MAX, type DiagramNode } from './model';
 import type { Change, Selection, Store } from './store';
 
@@ -321,6 +322,51 @@ export class Canvas {
       if (ev.key === 'Escape') close(false);
     });
     input.addEventListener('blur', () => close(true));
+  }
+
+  // ---- exportar --------------------------------------------------------
+
+  /**
+   * SVG autônomo do desenho: sem alças, seleção nem botões, no tema claro e com fundo branco,
+   * recortado ao conteúdo. `null` se não há nada desenhado.
+   */
+  exportSvg(): { svg: string; width: number; height: number } | null {
+    const { nodes } = this.store.diagram;
+    if (!nodes.length) return null;
+
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const grow = (x: number, y: number, w: number, h: number) => {
+      x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + w); y1 = Math.max(y1, y + h);
+    };
+    for (const n of nodes) {
+      const { w, h } = nodeSize(n);
+      grow(n.x - w / 2, n.y - h / 2, w, h);
+    }
+    // Setas (ciclos e textos) podem passar da borda dos retângulos.
+    if (this.edgeLayer.childElementCount) {
+      const b = this.edgeLayer.getBBox();
+      grow(b.x, b.y, b.width, b.height);
+    }
+    const pad = 24;
+    const x = Math.floor(x0 - pad);
+    const y = Math.floor(y0 - pad);
+    const width = Math.ceil(x1 + pad) - x;
+    const height = Math.ceil(y1 + pad) - y;
+
+    const clone = this.svg.cloneNode(true) as SVGSVGElement;
+    clone.querySelectorAll('.handle, .status, .node-halo, .add-owner, .edge-hit, .owner-hit, .overlay, title').forEach((e) => e.remove());
+    clone.querySelectorAll('.selected').forEach((e) => e.classList.remove('selected'));
+    clone.querySelectorAll('.edge-line').forEach((e) => e.setAttribute('marker-end', 'url(#arrow)'));
+    clone.removeAttribute('class');
+    clone.removeAttribute('style');
+    clone.setAttribute('xmlns', SVG_NS);
+    clone.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
+    clone.setAttribute('width', String(width));
+    clone.setAttribute('height', String(height));
+    const style = el('style');
+    style.textContent = EXPORT_CSS;
+    clone.prepend(style, el('rect', { x, y, width, height, fill: '#ffffff' }));
+    return { svg: new XMLSerializer().serializeToString(clone), width, height };
   }
 
   // ---- render ----------------------------------------------------------

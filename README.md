@@ -58,8 +58,20 @@ Abra o endereço que o Vite mostrar (normalmente http://localhost:5173; se a por
 | Trocar ou remover o responsável | Duplo clique na linha do nome (ou `R`). Esvaziar o campo remove o responsável |
 | Mover | Arraste o retângulo |
 | Remover | Selecione e aperte `Delete` |
+| Exportar | "Exportar SVG" ou "Exportar PNG" na barra de cima |
 
 O painel da direita mostra o código Mermaid, que pode ser editado, e um preview renderizado pelo próprio Mermaid. O preview usa o layout automático do Mermaid, não as posições do canvas. Editar o código é a única ação que troca o diagrama inteiro de uma vez.
+
+### Exportar SVG e PNG
+
+Os botões da barra superior baixam o **desenho do canvas**, com os retângulos nas posições em que você os colocou (`mermaid-draw.svg` e `mermaid-draw.png`):
+
+- O arquivo é recortado ao conteúdo, com uma margem, e tem fundo branco. Sai sempre no tema claro, mesmo com o editor no escuro.
+- Só vai o desenho: alças, contorno de seleção, bolinhas de status e o botão "+ responsável" ficam de fora. Retângulos ativos mantêm a borda verde, e os responsáveis aparecem.
+- O PNG sai em 2x, para ficar nítido (até 8192 px no lado maior).
+- Os botões ficam desativados quando o diagrama está vazio.
+
+O preview do Mermaid não é exportado: ele usa o layout automático do Mermaid, não as suas posições.
 
 ### Como o diagrama é salvo
 
@@ -162,6 +174,7 @@ src/ops.ts         operações granulares (criar/alterar/remover) e seus eventos
 src/store.ts       estado no navegador (diagrama, seleção, modo); avisa exatamente o que mudou
 src/canvas.ts      canvas SVG: drag and drop, setas, ciclos, edição de texto; redesenha só o elemento afetado
 src/sync.ts        sincronização com a API: uma requisição por mudança, eventos do servidor aplicados um a um
+src/export.ts      estilos do SVG exportado e download de SVG/PNG
 src/main.ts        paleta, painel de código, preview
 src/style.css      estilos (tema claro e escuro)
 server/api.ts      plugin do Vite com a API HTTP e os Server-Sent Events
@@ -175,7 +188,7 @@ server/api.ts      plugin do Vite com a API HTTP e os Server-Sent Events
 - [x] Código Mermaid sincronizado nos dois sentidos, com preview
 - [x] Status ativo/inativo, com responsável pela etapa
 - [x] Fine-grained reactivity: API e sincronização por elemento, canvas redesenhando só o que mudou
-- [ ] Exportar SVG/PNG
+- [x] Exportar SVG/PNG
 
 ## Licença
 
