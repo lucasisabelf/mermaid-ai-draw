@@ -63,6 +63,21 @@ describe('retângulos', () => {
     expect(d.nodes[1]).toEqual(before.nodes[1]);
   });
 
+  it('responsável: normaliza, remove com vazio ou null e valida', () => {
+    const d = sample();
+    ops.updateNode(d, 'n1', { owner: '  Maria \n Souza ' });
+    expect(d.nodes[0].owner).toBe('Maria Souza');
+    ops.updateNode(d, 'n1', { owner: null });
+    expect(d.nodes[0]).not.toHaveProperty('owner');
+    ops.updateNode(d, 'n1', { owner: 'João' });
+    ops.updateNode(d, 'n1', { owner: '   ' });
+    expect(d.nodes[0]).not.toHaveProperty('owner');
+    expect(statusOf(() => ops.updateNode(d, 'n1', { owner: 7 as never }))).toBe(400);
+    expect(statusOf(() => ops.updateNode(d, 'n1', { owner: 'x'.repeat(61) }))).toBe(400);
+    const ev = ops.addNode(d, { text: 'Com dono', owner: 'Ana' });
+    expect(ev).toMatchObject({ node: { owner: 'Ana' } });
+  });
+
   it('remover leva junto as setas ligadas', () => {
     const d = sample();
     const ev = ops.removeNode(d, 'n2');
@@ -120,6 +135,17 @@ describe('eventos', () => {
 });
 
 describe('Mermaid', () => {
+  it('o responsável vai e volta pelo comentário @owner', () => {
+    const d = sample();
+    ops.updateNode(d, 'n2', { owner: 'Maria Souza', active: true });
+    const code = toMermaid(d);
+    expect(code).toContain('%% @owner n2 Maria Souza');
+    const { diagram, errors } = parseMermaid(code);
+    expect(errors).toEqual([]);
+    expect(diagram.nodes.map((n) => n.owner)).toEqual([undefined, 'Maria Souza', undefined]);
+    expect(diagram.nodes[1].active).toBe(true);
+  });
+
   it('ler o código mantém os ids das setas que já existiam', () => {
     const d = sample();
     d.edges[0].id = 'eabc';

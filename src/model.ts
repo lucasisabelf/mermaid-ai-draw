@@ -6,6 +6,8 @@ export interface DiagramNode {
   y: number;
   /** Retângulos ativos ganham a borda verde (classe Mermaid `ativo`). */
   active?: boolean;
+  /** Quem cuida desta etapa (texto livre, em uma linha). */
+  owner?: string;
 }
 
 export interface DiagramEdge {
@@ -31,10 +33,15 @@ const HEADER_RE = /^(flowchart|graph)(\s+(TB|TD|BT|LR|RL))?$/;
 const NODE_RE = new RegExp(`^(${ID})\\((?:"([^"]*)"|([^()"]*))\\)$`);
 const EDGE_RE = new RegExp(`^(${ID})\\s*-->\\s*(?:\\|(?:"([^"]*)"|([^|"]*))\\|\\s*)?(${ID})$`);
 const CLASS_RE = new RegExp(`^class\\s+(${ID}(?:\\s*,\\s*${ID})*)\\s+(${ID})$`);
+const OWNER_RE = new RegExp(`^%%\\s*@owner\\s+(${ID})\\s+(.+)$`);
 const POS_RE = new RegExp(`^%%\\s*@pos\\s+(${ID})\\s+(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)$`);
 
 const escape = (s: string) => s.replace(/"/g, '#quot;');
 const unescape = (s: string) => s.replace(/#quot;/g, '"');
+
+export const OWNER_MAX = 60;
+/** Responsável em uma linha só: espaços repetidos e quebras viram um espaço. */
+export const cleanOwner = (s: string) => s.trim().replace(/\s+/g, ' ');
 
 export const ACTIVE_CLASS = 'ativo';
 export const ACTIVE_COLOR = '#1f9d55';
@@ -56,6 +63,7 @@ export function toMermaid(d: Diagram): string {
   }
   if (d.nodes.length) lines.push('');
   for (const n of d.nodes) lines.push(`%% @pos ${n.id} ${Math.round(n.x)} ${Math.round(n.y)}`);
+  for (const n of d.nodes) if (n.owner) lines.push(`%% @owner ${n.id} ${n.owner}`);
   return lines.join('\n');
 }
 
@@ -69,6 +77,7 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
   const edges: DiagramEdge[] = [];
   const positions = new Map<string, { x: number; y: number }>();
   const activeIds = new Set<string>();
+  const owners = new Map<string, string>();
 
   const ensureNode = (id: string) => {
     let n = nodes.get(id);
@@ -86,6 +95,11 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
     const pos = POS_RE.exec(line);
     if (pos) {
       positions.set(pos[1], { x: Number(pos[2]), y: Number(pos[3]) });
+      return;
+    }
+    const owner = OWNER_RE.exec(line);
+    if (owner) {
+      owners.set(owner[1], cleanOwner(owner[2]).slice(0, OWNER_MAX));
       return;
     }
     if (line.startsWith('%%') || line.startsWith('classDef ') || HEADER_RE.test(line)) return;
@@ -117,6 +131,11 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
   for (const id of activeIds) {
     const n = nodes.get(id);
     if (n) n.active = true;
+  }
+
+  for (const [id, owner] of owners) {
+    const n = nodes.get(id);
+    if (n && owner) n.owner = owner;
   }
 
   const prev = new Map(previous?.nodes.map((n) => [n.id, n]));

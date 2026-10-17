@@ -62,7 +62,7 @@ describe('API granular', () => {
     expect((await call('GET', '/diagram')).status).toBe(204);
     const a = await call('POST', '/nodes', { text: 'Início', x: 100, y: 100 });
     expect(a.status).toBe(201);
-    expect(a.json).toEqual({ id: 'n1', text: 'Início', active: false, x: 100, y: 100 });
+    expect(a.json).toEqual({ id: 'n1', text: 'Início', active: false, owner: null, x: 100, y: 100 });
     await call('POST', '/nodes', { text: 'Meio' });
     const e = await call('POST', '/edges', { from: 'Início', to: 'meio', text: 'processa' });
     expect(e.json).toEqual({ id: 'e1', from: 'n1', to: 'n2', text: 'processa' });
@@ -77,7 +77,7 @@ describe('API granular', () => {
     await call('PUT', '/diagram', SAMPLE);
     const before = (await call('GET', '/diagram.json')).json.diagram;
     const r = await call('PATCH', '/nodes/n1', { text: 'Começo' });
-    expect(r.json).toEqual({ id: 'n1', text: 'Começo', active: false, x: 100, y: 100 });
+    expect(r.json).toEqual({ id: 'n1', text: 'Começo', active: false, owner: null, x: 100, y: 100 });
     const after = (await call('GET', '/diagram.json')).json.diagram;
     expect(after.nodes[1]).toEqual(before.nodes[1]);
     expect(after.edges).toEqual(before.edges);
@@ -91,6 +91,30 @@ describe('API granular', () => {
     expect((await call('POST', '/nodes/n2/alternar')).json.active).toBe(false);
     expect((await call('PATCH', '/nodes/n2', { active: true })).json.active).toBe(true);
     expect((await call('GET', '/diagram')).text).toContain('class n2 ativo');
+  });
+
+  it('responsável: define, troca e remove, só naquele retângulo', async () => {
+    await start();
+    await call('PUT', '/diagram', SAMPLE);
+    const r = await call('PATCH', '/nodes/Meio', { owner: '  Maria   Souza ', active: true });
+    expect(r.json).toMatchObject({ id: 'n2', active: true, owner: 'Maria Souza' });
+    expect((await call('GET', '/nodes/n1')).json.owner).toBeNull();
+    expect((await call('GET', '/diagram')).text).toContain('%% @owner n2 Maria Souza');
+    expect((await call('PATCH', '/nodes/n2', { owner: 'João' })).json.owner).toBe('João');
+    expect((await call('PATCH', '/nodes/n2', { owner: null })).json.owner).toBeNull();
+    expect((await call('PATCH', '/nodes/n2', { owner: 'x' })).status).toBe(200);
+    expect((await call('PATCH', '/nodes/n2', { owner: '' })).json.owner).toBeNull();
+    expect((await call('GET', '/diagram')).text).not.toContain('@owner');
+    expect((await call('PATCH', '/nodes/n2', { owner: 42 })).status).toBe(400);
+    expect((await call('PATCH', '/nodes/n2', { owner: 'x'.repeat(61) })).status).toBe(400);
+    expect((await call('POST', '/nodes', { text: 'Novo', owner: 'Ana' })).json.owner).toBe('Ana');
+  });
+
+  it('PUT de código lê o responsável do comentário @owner', async () => {
+    await start();
+    await call('PUT', '/diagram', SAMPLE + '\n%% @owner n1 Ana Lima');
+    expect((await call('GET', '/nodes/n1')).json.owner).toBe('Ana Lima');
+    expect((await call('GET', '/diagram.json')).json.diagram.nodes[0].owner).toBe('Ana Lima');
   });
 
   it('DELETE de retângulo remove as setas dele', async () => {

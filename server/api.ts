@@ -12,9 +12,9 @@ import { OpError, type DiagramEvent } from '../src/ops.ts';
  * O código Mermaid é gerado na hora a partir do estado; a fonte de verdade é o JSON.
  *
  *   GET    /api/nodes                        lista os retângulos
- *   POST   /api/nodes                        cria  {text, x?, y?, active?, id?}
+ *   POST   /api/nodes                        cria  {text, x?, y?, active?, owner?, id?}
  *   GET    /api/nodes/:ref                   um retângulo (:ref = id ou texto)
- *   PATCH  /api/nodes/:ref                   altera {text?, x?, y?, active?}
+ *   PATCH  /api/nodes/:ref                   altera {text?, x?, y?, active?, owner?}  (owner "" ou null remove)
  *   DELETE /api/nodes/:ref                   remove (e as setas ligadas a ele)
  *   POST   /api/nodes/:ref/ativar|desativar|alternar
  *   GET    /api/edges                        lista as setas
@@ -87,10 +87,11 @@ export function createApi(filePath: string) {
     }
   };
 
-  const nodeOut = (n: { id: string; text: string; x: number; y: number; active?: boolean }) => ({
+  const nodeOut = (n: { id: string; text: string; x: number; y: number; active?: boolean; owner?: string }) => ({
     id: n.id,
     text: n.text,
     active: Boolean(n.active),
+    owner: n.owner ?? null,
     x: Math.round(n.x),
     y: Math.round(n.y),
   });

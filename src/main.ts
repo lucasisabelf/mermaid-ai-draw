@@ -73,7 +73,7 @@ function updateHint() {
     ? 'Clique (ou solte) sobre o retângulo de destino. Esc cancela.'
     : store.mode === 'arrow'
       ? 'Modo seta: arraste de um retângulo até outro. Esc volta ao modo seleção.'
-      : 'Arraste os componentes para o canvas. Duplo clique edita o texto. A bolinha à esquerda (ou a tecla A) ativa/inativa. Delete remove.';
+      : 'Arraste os componentes para o canvas. Duplo clique edita o texto. A bolinha à esquerda (ou a tecla A) ativa/inativa. R define quem cuida da etapa. Delete remove.';
   document.querySelector('[data-tool="arrow"]')!.classList.toggle('active', store.mode === 'arrow');
 }
 
@@ -146,6 +146,9 @@ document.addEventListener('keydown', (e) => {
     store.removeSelected();
   } else if (e.key.toLowerCase() === 'a' && store.selection?.kind === 'node' && !e.ctrlKey && !e.metaKey) {
     store.toggleActive(store.selection.id);
+  } else if (e.key.toLowerCase() === 'r' && store.selection?.kind === 'node' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault(); // senão a letra cairia no campo que acabou de abrir
+    canvas.edit('owner', store.selection.id);
   } else if (e.key === 'Escape') {
     if (canvas.connecting) canvas.cancel();
     else if (store.mode === 'arrow') store.setMode('select');

@@ -1,21 +1,28 @@
-import type { DiagramNode } from './model';
+import { cleanOwner, OWNER_MAX, type DiagramNode } from './model';
 import type { Change, Selection, Store } from './store';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 export const DND_TYPE = 'application/x-mermaid-draw';
 export const FONT = '14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
+const OWNER_FONT = FONT.replace('14px', '12px');
 const NODE_H = 44;
+/** Altura quando há responsável: uma segunda linha, menor, abaixo do texto. */
+const NODE_H_OWNER = 58;
 const NODE_MIN_W = 120;
 const NODE_PAD = 20;
 const RADIUS = 12;
 
 const measureCtx = document.createElement('canvas').getContext('2d')!;
 measureCtx.font = FONT;
-const textWidth = (s: string) => Math.ceil(measureCtx.measureText(s).width);
+const textWidth = (s: string, font = FONT) => {
+  measureCtx.font = font;
+  return Math.ceil(measureCtx.measureText(s).width);
+};
 
 export function nodeSize(n: DiagramNode) {
-  return { w: Math.max(NODE_MIN_W, textWidth(n.text) + NODE_PAD * 2), h: NODE_H };
+  const content = Math.max(textWidth(n.text), n.owner ? textWidth(n.owner, OWNER_FONT) + 16 : 0);
+  return { w: Math.max(NODE_MIN_W, content + NODE_PAD * 2), h: n.owner ? NODE_H_OWNER : NODE_H };
 }
 
 type Point = { x: number; y: number };
@@ -152,16 +159,26 @@ export class Canvas {
       return;
     }
 
+    const addOwner = target.closest<SVGElement>('[data-add-owner]');
+    if (addOwner) {
+      e.preventDefault();
+      this.lastDown = { key: '', time: 0 };
+      this.store.select({ kind: 'node', id: addOwner.dataset.addOwner! });
+      this.edit('owner', addOwner.dataset.addOwner!);
+      return;
+    }
+
     const handle = target.closest<SVGElement>('[data-handle]');
     const nodeEl = target.closest<SVGElement>('[data-node]');
     const edgeEl = target.closest<SVGElement>('[data-edge]');
+    const ownerEl = target.closest<SVGElement>('[data-owner]');
 
-    const key = handle ? '' : nodeEl ? `n:${nodeEl.dataset.node}` : edgeEl ? `e:${edgeEl.dataset.edge}` : 'bg';
+    const key = handle ? '' : ownerEl ? `o:${nodeEl?.dataset.node}` : nodeEl ? `n:${nodeEl.dataset.node}` : edgeEl ? `e:${edgeEl.dataset.edge}` : 'bg';
     const isDouble = key !== '' && key === this.lastDown.key && e.timeStamp - this.lastDown.time < 350;
     this.lastDown = isDouble ? { key: '', time: 0 } : { key, time: e.timeStamp };
     if (isDouble) {
       e.preventDefault();
-      this.onDoubleClick(p, nodeEl?.dataset.node, edgeEl?.dataset.edge);
+      this.onDoubleClick(p, nodeEl?.dataset.node, edgeEl?.dataset.edge, Boolean(ownerEl));
       return;
     }
 
@@ -215,9 +232,9 @@ export class Canvas {
     else this.store.emit({ source: 'view' });
   }
 
-  private onDoubleClick(p: Point, nodeId?: string, edgeId?: string) {
+  private onDoubleClick(p: Point, nodeId?: string, edgeId?: string, owner = false) {
     this.drag = null;
-    if (nodeId) this.edit('node', nodeId);
+    if (nodeId) this.edit(owner ? 'owner' : 'node', nodeId);
     else if (edgeId) this.edit('edge', edgeId);
     else this.edit('node', this.store.addNode(p.x, p.y).id);
   }
@@ -246,28 +263,29 @@ export class Canvas {
 
   // ---- edição de texto -------------------------------------------------
 
-  edit(kind: 'node' | 'edge', id: string) {
+  edit(kind: 'node' | 'edge' | 'owner', id: string) {
     this.editor?.blur();
     let anchor: Point;
     let value: string;
-    if (kind === 'node') {
-      const n = this.store.node(id);
-      if (!n) return;
-      anchor = n;
-      value = n.text;
-    } else {
+    if (kind === 'edge') {
       const e = this.store.edge(id);
       const a = e && this.store.node(e.from);
       const b = e && this.store.node(e.to);
       if (!e || !a || !b) return;
       anchor = edgeGeometry(a, b).label;
       value = e.text;
+    } else {
+      const n = this.store.node(id);
+      if (!n) return;
+      anchor = n;
+      value = kind === 'owner' ? (n.owner ?? '') : n.text;
     }
 
     const input = document.createElement('input');
     input.className = 'inline-editor';
     input.value = value;
-    input.placeholder = kind === 'node' ? 'Texto do retângulo' : 'Texto da seta';
+    input.placeholder = { node: 'Texto do retângulo', edge: 'Texto da seta', owner: 'Quem cuida desta etapa?' }[kind];
+    if (kind === 'owner') input.maxLength = OWNER_MAX;
     input.style.left = `${anchor.x}px`;
     input.style.top = `${anchor.y}px`;
     this.host.append(input);
@@ -279,16 +297,22 @@ export class Canvas {
     const close = (commit: boolean) => {
       if (done) return;
       done = true;
-      const text = input.value.trim();
+      const text = kind === 'owner' ? cleanOwner(input.value) : input.value.trim();
       input.remove();
       if (this.editor === input) this.editor = null;
       if (!commit) return;
-      if (kind === 'node') {
-        const n = this.store.node(id);
-        if (n && text && text !== n.text) this.store.updateNode(id, { text });
-      } else {
+      if (kind === 'edge') {
         const e = this.store.edge(id);
         if (e && text !== e.text) this.store.updateEdge(id, { text });
+        return;
+      }
+      const n = this.store.node(id);
+      if (!n) return;
+      // Esvaziar o responsável remove-o; o texto do retângulo, ao contrário, não pode ficar vazio.
+      if (kind === 'owner') {
+        if (text !== (n.owner ?? '')) this.store.updateNode(id, { owner: text });
+      } else if (text && text !== n.text) {
+        this.store.updateNode(id, { text });
       }
     };
     input.addEventListener('keydown', (ev) => {
@@ -374,7 +398,7 @@ export class Canvas {
   private renderNode(id: string, withEdges = true) {
     const n = this.store.node(id);
     this.swap(this.nodeEls, this.nodeLayer, id, n ? this.buildNode(n) : null);
-    const geometry = n ? `${n.x},${n.y},${nodeSize(n).w}` : '';
+    const geometry = n ? `${n.x},${n.y},${nodeSize(n).w},${nodeSize(n).h}` : '';
     const moved = this.nodeGeometry.get(id) !== geometry;
     if (n) this.nodeGeometry.set(id, geometry);
     else this.nodeGeometry.delete(id);
@@ -413,7 +437,24 @@ export class Canvas {
     });
     if (selected) el('rect', { x: -4, y: -4, width: w + 8, height: h + 8, rx: RADIUS + 4, class: 'node-halo' }, g);
     el('rect', { width: w, height: h, rx: RADIUS, class: 'node-rect' }, g);
-    el('text', { x: w / 2, y: h / 2, class: 'node-label' }, g).textContent = n.text;
+    el('text', { x: w / 2, y: n.owner ? 21 : h / 2, class: 'node-label' }, g).textContent = n.text;
+    // Responsável: segunda linha dentro do retângulo (duplo clique edita) ou, no selecionado sem ninguém, um botão.
+    // Vem antes da bolinha e do status, que ficam por cima da área clicável.
+    if (n.owner) {
+      const og = el('g', { class: 'node-owner', 'data-owner': n.id }, g);
+      el('title', {}, og).textContent = `Responsável: ${n.owner} — duplo clique para editar`;
+      el('rect', { x: 0, y: 32, width: w, height: h - 32, class: 'owner-hit' }, og);
+      const x0 = w / 2 - (textWidth(n.owner, OWNER_FONT) + 15) / 2;
+      el('circle', { cx: x0 + 4, cy: 39.5, r: 2.6, class: 'owner-icon' }, og);
+      el('path', { d: `M ${x0 - 1} 47 a 5 4 0 0 1 10 0 z`, class: 'owner-icon' }, og);
+      el('text', { x: x0 + 14, y: 43, class: 'owner-label' }, og).textContent = n.owner;
+    } else if (selected) {
+      const label = '+ responsável';
+      const pw = textWidth(label, OWNER_FONT) + 18;
+      const pg = el('g', { class: 'add-owner', 'data-add-owner': n.id }, g);
+      el('rect', { x: w / 2 - pw / 2, y: h + 8, width: pw, height: 20, rx: 10, class: 'add-owner-bg' }, pg);
+      el('text', { x: w / 2, y: h + 18.5, class: 'add-owner-label' }, pg).textContent = label;
+    }
     el('circle', { cx: w, cy: h / 2, r: 6, class: 'handle', 'data-handle': n.id }, g);
     const toggle = el('g', { class: 'status', 'data-toggle': n.id }, g);
     el('title', {}, toggle).textContent = n.active ? 'Ativo — clique para inativar' : 'Inativo — clique para ativar';

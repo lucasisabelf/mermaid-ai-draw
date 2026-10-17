@@ -235,6 +235,44 @@ button:hover {
   pointer-events: none;
 }
 
+.owner-hit {
+  fill: transparent;
+}
+
+.owner-label {
+  fill: var(--muted);
+  font-size: 12px;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
+.owner-icon {
+  fill: var(--muted);
+  pointer-events: none;
+}
+
+.add-owner {
+  cursor: pointer;
+}
+
+.add-owner-bg {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-dasharray: 3 2;
+}
+
+.add-owner:hover .add-owner-bg {
+  stroke: var(--accent);
+}
+
+.add-owner-label {
+  fill: var(--muted);
+  font-size: 12px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
 .handle {
   fill: var(--accent);
   stroke: var(--surface);

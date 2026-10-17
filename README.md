@@ -20,7 +20,7 @@ O editor tem só dois elementos, de propósito:
 
 | Componente | Descrição | Sintaxe Mermaid |
 |---|---|---|
-| **Retângulo** | Caixa com cantos arredondados e um texto. Pode estar **ativo** (borda verde) ou inativo. | `n1("Texto")` |
+| **Retângulo** | Caixa com cantos arredondados e um texto. Pode estar **ativo** (borda verde) ou inativo e ter um **responsável**: o nome de quem cuida daquela etapa. | `n1("Texto")` |
 | **Seta** | Liga dois retângulos, com um texto opcional. Pode ligar um retângulo a ele mesmo (ciclo). | `n1 -->\|"texto"\| n2` |
 
 ### Exemplo
@@ -54,6 +54,8 @@ Abra o endereço que o Vite mostrar (normalmente http://localhost:5173; se a por
 | Criar ciclo | Arraste a bolinha para fora e volte ao mesmo retângulo, ou solte "Seta" sobre ele e clique nele mesmo |
 | Editar texto | Duplo clique no retângulo ou na seta. `Enter` confirma, `Esc` cancela |
 | Ativar/inativar | Clique na bolinha à esquerda do retângulo, ou selecione e aperte `A` |
+| Definir o responsável | Selecione o retângulo e clique em "+ responsável", ou aperte `R`. O nome aparece numa segunda linha dentro do retângulo |
+| Trocar ou remover o responsável | Duplo clique na linha do nome (ou `R`). Esvaziar o campo remove o responsável |
 | Mover | Arraste o retângulo |
 | Remover | Selecione e aperte `Delete` |
 
@@ -63,7 +65,7 @@ O painel da direita mostra o código Mermaid, que pode ser editado, e um preview
 
 - **Fonte de verdade:** com o servidor rodando, o estado fica em `diagram.json` (fora do git), com um número de revisão (`rev`) que sobe a cada mudança. Um `diagram.mmd` do formato antigo é migrado automaticamente.
 - **Ids estáveis:** retângulos e setas têm ids fixos. Os criados no navegador recebem um id aleatório curto (ex.: `n7k2q`) para não colidir entre abas; os criados via API sem id seguem a sequência (`n4`, `e3`).
-- **No código Mermaid:** o status vira uma classe (`classDef ativo …` e `class n1,n2 ativo`) e as posições ficam em comentários `%% @pos id x y`, que o Mermaid ignora.
+- **No código Mermaid:** o status vira uma classe (`classDef ativo …` e `class n1,n2 ativo`). As posições e os responsáveis ficam em comentários (`%% @pos id x y` e `%% @owner id Nome`), que o Mermaid ignora. Por isso o preview do Mermaid não mostra o responsável; só o canvas mostra.
 - **Sem servidor:** o editor continua funcionando com uma cópia no `localStorage` do navegador.
 
 ## API (curl)
@@ -74,7 +76,8 @@ O servidor do Vite (`npm run dev` ou `npm run preview`) expõe a API em `/api`. 
 # retângulos
 curl -X POST  localhost:5173/api/nodes      -d '{"text":"Novo","x":200,"y":150}'
 curl -X PATCH localhost:5173/api/nodes/n1   -d '{"text":"Começo"}'
-curl -X PATCH localhost:5173/api/nodes/Meio -d '{"active":true}'
+curl -X PATCH localhost:5173/api/nodes/Meio -d '{"active":true,"owner":"Maria Souza"}'
+curl -X PATCH localhost:5173/api/nodes/Meio -d '{"owner":null}'      # remove o responsável
 curl -X DELETE localhost:5173/api/nodes/n3
 
 # atalhos de status
@@ -95,10 +98,10 @@ curl -X PUT --data-binary @meu.mmd localhost:5173/api/diagram     # substitui tu
 
 | Método | Rota | O que faz |
 |---|---|---|
-| `GET` | `/api/nodes` | Lista os retângulos (`id`, `text`, `active`, `x`, `y`) |
-| `POST` | `/api/nodes` | Cria: `{text?, x?, y?, active?, id?}` → `201`. Sem `x`/`y`, vai para uma vaga livre |
+| `GET` | `/api/nodes` | Lista os retângulos (`id`, `text`, `active`, `owner`, `x`, `y`). `owner` é `null` quando não há responsável |
+| `POST` | `/api/nodes` | Cria: `{text?, x?, y?, active?, owner?, id?}` → `201`. Sem `x`/`y`, vai para uma vaga livre |
 | `GET` | `/api/nodes/:ref` | Um retângulo |
-| `PATCH` | `/api/nodes/:ref` | Altera só os campos enviados: `{text?, x?, y?, active?}` |
+| `PATCH` | `/api/nodes/:ref` | Altera só os campos enviados: `{text?, x?, y?, active?, owner?}`. `owner` vazio ou `null` remove o responsável; o nome tem até 60 caracteres, em uma linha |
 | `DELETE` | `/api/nodes/:ref` | Remove o retângulo e as setas ligadas a ele |
 | `POST` | `/api/nodes/:ref/ativar` · `desativar` · `alternar` | Atalhos para o status |
 | `GET` | `/api/edges` | Lista as setas (`id`, `from`, `to`, `text`) |
@@ -164,7 +167,7 @@ server/api.ts      plugin do Vite com a API HTTP e os Server-Sent Events
 - [x] Retângulo arredondado com texto
 - [x] Seta com texto, incluindo ciclos
 - [x] Código Mermaid sincronizado nos dois sentidos, com preview
-- [x] Status ativo/inativo
+- [x] Status ativo/inativo, com responsável pela etapa
 - [x] Fine-grained reactivity: API e sincronização por elemento, canvas redesenhando só o que mudou
 - [ ] Exportar SVG/PNG
 

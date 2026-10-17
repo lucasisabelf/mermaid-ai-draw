@@ -1,4 +1,4 @@
-import { freeSlot, ID_RE, nextId, type Diagram, type DiagramEdge, type DiagramNode } from './model.ts';
+import { cleanOwner, freeSlot, ID_RE, nextId, OWNER_MAX, type Diagram, type DiagramEdge, type DiagramNode } from './model.ts';
 
 /**
  * Operações granulares sobre o diagrama, usadas pelo servidor e pelo navegador.
@@ -6,7 +6,8 @@ import { freeSlot, ID_RE, nextId, type Diagram, type DiagramEdge, type DiagramNo
  * o mesmo evento, aplicado com `applyEvent`, reproduz a mudança em outra cópia.
  */
 
-export type NodePatch = Partial<Pick<DiagramNode, 'text' | 'x' | 'y' | 'active'>>;
+/** `owner` vazio ou `null` remove o responsável. */
+export type NodePatch = Partial<Pick<DiagramNode, 'text' | 'x' | 'y' | 'active'>> & { owner?: string | null };
 export type EdgePatch = Partial<Pick<DiagramEdge, 'text' | 'from' | 'to'>>;
 export type NewNode = NodePatch & { id?: string };
 export type NewEdge = { id?: string; from: string; to: string; text?: string };
@@ -27,7 +28,7 @@ export class OpError extends Error {
   }
 }
 
-const NODE_FIELDS = ['text', 'x', 'y', 'active'];
+const NODE_FIELDS = ['text', 'x', 'y', 'active', 'owner'];
 const EDGE_FIELDS = ['text', 'from', 'to'];
 
 function checkFields(input: object, allowed: string[]) {
@@ -42,6 +43,10 @@ function checkNodePatch(p: NodePatch) {
     if (p[k] !== undefined && !Number.isFinite(p[k])) throw new OpError(400, `"${k}" deve ser um número.`);
   }
   if (p.active !== undefined && typeof p.active !== 'boolean') throw new OpError(400, '"active" deve ser true ou false.');
+  if (p.owner !== undefined && p.owner !== null) {
+    if (typeof p.owner !== 'string') throw new OpError(400, '"owner" deve ser um texto (ou null para remover).');
+    if (cleanOwner(p.owner).length > OWNER_MAX) throw new OpError(400, `"owner" deve ter no máximo ${OWNER_MAX} caracteres.`);
+  }
 }
 
 function checkNewId(id: string | undefined, taken: { id: string }[]) {
@@ -97,6 +102,8 @@ export function addNode(d: Diagram, input: NewNode): DiagramEvent {
     y: patch.y ?? slot!.y,
   };
   if (patch.active) node.active = true;
+  const owner = patch.owner ? cleanOwner(patch.owner) : '';
+  if (owner) node.owner = owner;
   d.nodes.push(node);
   return { type: 'node.added', node };
 }
@@ -111,6 +118,11 @@ export function updateNode(d: Diagram, id: string, patch: NodePatch): DiagramEve
   if (patch.active !== undefined) {
     if (patch.active) n.active = true;
     else delete n.active;
+  }
+  if (patch.owner !== undefined) {
+    const owner = patch.owner ? cleanOwner(patch.owner) : '';
+    if (owner) n.owner = owner;
+    else delete n.owner;
   }
   return { type: 'node.updated', node: n };
 }
