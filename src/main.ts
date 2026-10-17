@@ -3,6 +3,7 @@ import './style.css';
 import { Canvas, DND_TYPE } from './canvas';
 import { parseMermaid, toMermaid, type Diagram } from './model';
 import { Store } from './store';
+import { ServerSync } from './sync';
 
 const STORAGE_KEY = 'mermaid-draw:code';
 
@@ -78,45 +79,22 @@ function updateHint() {
 
 // ---- sincronização com o servidor (API em server/api.ts) -------------------
 
-const clientId = crypto.randomUUID?.() ?? String(Math.random());
-let serverOnline = false;
+new ServerSync(store);
 
-const pushToServer = debounce((code: string) => {
-  if (!serverOnline) return;
-  fetch('/api/diagram', { method: 'PUT', headers: { 'X-Client-Id': clientId }, body: code }).catch(() => {});
-}, 300);
-
-const events = new EventSource('/api/events');
-events.onmessage = (ev) => {
-  const { code, source } = JSON.parse(ev.data) as { code: string | null; source: string };
-  const firstMessage = !serverOnline;
-  serverOnline = true;
-  if (source === clientId) return;
-  // Servidor ainda sem diagrama: ele adota o deste navegador.
-  if (code === null) {
-    if (firstMessage) pushToServer(toMermaid(store.diagram));
-    return;
-  }
-  if (code === toMermaid(store.diagram)) return;
-  store.setDiagram(parseMermaid(code, store.diagram).diagram, 'remote');
-};
-events.onerror = () => {
-  serverOnline = false;
-  // Sem API (ex.: build estático servido por outro servidor): segue só com localStorage.
-  if (events.readyState === EventSource.CLOSED) events.close();
-};
-
-store.subscribe((change) => {
-  updateHint();
-  if (change === 'view') return;
+/** Atualiza o que depende do diagrama inteiro: painel de código, preview e cópia local. */
+function refreshDerived(fromCode: boolean) {
   const code = toMermaid(store.diagram);
-  if (change !== 'code') {
+  if (!fromCode) {
     codeEl.value = code;
     errorsEl.replaceChildren();
   }
-  if (change !== 'remote') pushToServer(code);
   save(code);
   schedulePreview(code);
+}
+
+store.subscribe((change) => {
+  updateHint();
+  if (change.source !== 'view') refreshDerived(change.source === 'code');
 });
 
 // ---- código → canvas -----------------------------------------------------
@@ -128,7 +106,7 @@ codeEl.addEventListener(
     errorsEl.replaceChildren(
       ...errors.map((msg) => Object.assign(document.createElement('div'), { textContent: msg })),
     );
-    if (!errors.length) store.setDiagram(diagram, 'code');
+    if (!errors.length) store.replace(diagram, 'code');
   }, 300),
 );
 
@@ -189,7 +167,8 @@ $('#btn-copy').addEventListener('click', async () => {
 
 $('#btn-clear').addEventListener('click', () => {
   if (store.diagram.nodes.length && !confirm('Apagar todo o diagrama?')) return;
-  store.setDiagram({ nodes: [], edges: [] }, 'canvas');
+  store.replace({ nodes: [], edges: [] }, 'local');
 });
 
-store.emit('canvas');
+updateHint();
+refreshDerived(false);

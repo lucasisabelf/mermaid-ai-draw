@@ -26,6 +26,7 @@ export interface ParseResult {
 }
 
 const ID = '[A-Za-z_][\\w-]*';
+export const ID_RE = new RegExp(`^${ID}$`);
 const HEADER_RE = /^(flowchart|graph)(\s+(TB|TD|BT|LR|RL))?$/;
 const NODE_RE = new RegExp(`^(${ID})\\((?:"([^"]*)"|([^()"]*))\\)$`);
 const EDGE_RE = new RegExp(`^(${ID})\\s*-->\\s*(?:\\|(?:"([^"]*)"|([^|"]*))\\|\\s*)?(${ID})$`);
@@ -106,7 +107,7 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
       const [, from, quoted, plain, to] = edge;
       ensureNode(from);
       ensureNode(to);
-      edges.push({ id: `e${edges.length + 1}`, from, to, text: unescape(quoted ?? plain ?? '').trim() });
+      edges.push({ id: '', from, to, text: unescape(quoted ?? plain ?? '').trim() });
       return;
     }
 
@@ -129,19 +130,30 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
       unplaced.push(n);
     }
   }
-  // Nós sem posição vão para a primeira vaga livre de uma grade.
   const taken = [...nodes.values()].filter((n) => !unplaced.includes(n));
-  let slot = 0;
   for (const n of unplaced) {
-    do {
-      n.x = 140 + (slot % 4) * 220;
-      n.y = 80 + Math.floor(slot / 4) * 110;
-      slot++;
-    } while (taken.some((t) => Math.abs(t.x - n.x) < 180 && Math.abs(t.y - n.y) < 70));
+    Object.assign(n, freeSlot(taken));
     taken.push(n);
   }
 
+  // O Mermaid não guarda id de seta: reaproveita o id da seta equivalente (mesma origem e destino)
+  // do diagrama anterior, para que editar o código não troque o id das setas que já existiam.
+  const unused = [...(previous?.edges ?? [])];
+  for (const e of edges) {
+    const i = unused.findIndex((p) => p.from === e.from && p.to === e.to);
+    if (i >= 0) e.id = unused.splice(i, 1)[0].id;
+  }
+  for (const e of edges) if (!e.id) e.id = nextId('e', edges.map((x) => x.id));
+
   return { diagram: { nodes: [...nodes.values()], edges }, errors };
+}
+
+/** Primeira vaga livre de uma grade, longe dos retângulos em `taken`. */
+export function freeSlot(taken: { x: number; y: number }[]): { x: number; y: number } {
+  for (let slot = 0; ; slot++) {
+    const p = { x: 140 + (slot % 4) * 220, y: 80 + Math.floor(slot / 4) * 110 };
+    if (!taken.some((t) => Math.abs(t.x - p.x) < 180 && Math.abs(t.y - p.y) < 70)) return p;
+  }
 }
 
 export function nextId(prefix: string, ids: string[]): string {

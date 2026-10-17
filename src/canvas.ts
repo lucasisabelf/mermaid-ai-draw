@@ -1,5 +1,5 @@
 import type { DiagramNode } from './model';
-import type { Store } from './store';
+import type { Change, Selection, Store } from './store';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 export const DND_TYPE = 'application/x-mermaid-draw';
@@ -78,6 +78,13 @@ export class Canvas {
   private overlay = el('g', { class: 'overlay' });
   private drag: Drag | null = null;
   private editor: HTMLInputElement | null = null;
+  /** Elementos SVG por id: cada mudança redesenha só o retângulo/seta afetado. */
+  private nodeEls = new Map<string, SVGGElement>();
+  private edgeEls = new Map<string, SVGGElement>();
+  /** Posição e largura já desenhadas de cada retângulo: as setas só mudam se isso mudar. */
+  private nodeGeometry = new Map<string, string>();
+  /** Seleção já desenhada, para redesenhar só o que entrou e saiu dela. */
+  private shownSelection: Selection = null;
   /** Duplo clique detectado à mão: o render recria os elementos entre os cliques. */
   private lastDown = { key: '', time: 0 };
 
@@ -100,8 +107,8 @@ export class Canvas {
     host.addEventListener('dragover', this.onDragOver);
     host.addEventListener('drop', this.onDrop);
 
-    store.subscribe(() => this.render());
-    this.render();
+    store.subscribe(this.onChange);
+    this.renderAll();
   }
 
   get connecting() {
@@ -111,7 +118,7 @@ export class Canvas {
   cancel() {
     if (this.drag?.kind === 'connect') {
       this.drag = null;
-      this.store.emit('view');
+      this.store.emit({ source: 'view' });
     }
   }
 
@@ -140,7 +147,7 @@ export class Canvas {
     const toggle = target.closest<SVGElement>('[data-toggle]');
     if (toggle) {
       this.lastDown = { key: '', time: 0 };
-      this.store.selection = { kind: 'node', id: toggle.dataset.toggle! };
+      this.store.select({ kind: 'node', id: toggle.dataset.toggle! });
       this.store.toggleActive(toggle.dataset.toggle!);
       return;
     }
@@ -162,7 +169,7 @@ export class Canvas {
       const from = (handle?.dataset.handle ?? nodeEl!.dataset.node)!;
       this.drag = { kind: 'connect', from, at: p, sticky: false, moved: false };
       this.svg.setPointerCapture(e.pointerId);
-      this.store.emit('view');
+      this.store.emit({ source: 'view' });
       return;
     }
     if (nodeEl) {
@@ -184,15 +191,11 @@ export class Canvas {
     if (!d) return;
     const p = this.point(e);
     if (d.kind === 'move') {
-      const n = this.store.node(d.id);
-      if (!n) return;
-      n.x = p.x - d.dx;
-      n.y = p.y - d.dy;
-      this.store.emit('canvas');
+      if (this.store.node(d.id)) this.store.updateNode(d.id, { x: p.x - d.dx, y: p.y - d.dy });
     } else {
       if (Math.hypot(p.x - d.at.x, p.y - d.at.y) > 4) d.moved = true;
       d.at = p;
-      this.render();
+      this.renderOverlay();
     }
   };
 
@@ -206,10 +209,10 @@ export class Canvas {
     this.drag = null;
     const from = d?.from;
     const to = this.nodeAt(e.clientX, e.clientY);
-    if (to === from && !d?.moved) return this.store.emit('view');
+    if (to === from && !d?.moved) return this.store.emit({ source: 'view' });
     const edge = from && to ? this.store.addEdge(from, to) : undefined;
     if (edge) this.edit('edge', edge.id);
-    else this.store.emit('view');
+    else this.store.emit({ source: 'view' });
   }
 
   private onDoubleClick(p: Point, nodeId?: string, edgeId?: string) {
@@ -282,12 +285,11 @@ export class Canvas {
       if (!commit) return;
       if (kind === 'node') {
         const n = this.store.node(id);
-        if (n && text) n.text = text;
+        if (n && text && text !== n.text) this.store.updateNode(id, { text });
       } else {
         const e = this.store.edge(id);
-        if (e) e.text = text;
+        if (e && text !== e.text) this.store.updateEdge(id, { text });
       }
-      this.store.emit('canvas');
     };
     input.addEventListener('keydown', (ev) => {
       ev.stopPropagation();
@@ -299,55 +301,133 @@ export class Canvas {
 
   // ---- render ----------------------------------------------------------
 
-  render() {
-    const { diagram, selection, mode } = this.store;
-    const byId = new Map(diagram.nodes.map((n) => [n.id, n]));
-    this.svg.classList.toggle('mode-arrow', mode === 'arrow' || this.connecting);
+  private onChange = (change: Change) => {
+    if (change.source !== 'view') {
+      const ev = change.event;
+      switch (ev.type) {
+        case 'node.added':
+        case 'node.updated':
+          this.renderNode(ev.node.id);
+          break;
+        case 'node.removed':
+          this.renderNode(ev.id);
+          for (const id of ev.edges) this.renderEdge(id);
+          break;
+        case 'edge.added':
+        case 'edge.updated':
+        case 'edge.removed':
+          this.renderEdge(ev.type === 'edge.removed' ? ev.id : ev.edge.id);
+          break;
+        case 'diagram.replaced':
+          this.renderAll();
+          break;
+      }
+    }
+    this.renderView();
+  };
+
+  private isSelected(kind: 'node' | 'edge', id: string) {
+    const sel = this.store.selection;
+    return sel?.kind === kind && sel.id === id;
+  }
+
+  /** Modo, seleção e linha provisória: redesenha só os elementos que entraram ou saíram da seleção. */
+  private renderView() {
+    this.svg.classList.toggle('mode-arrow', this.store.mode === 'arrow' || this.connecting);
+    const before = this.shownSelection;
+    const now = this.store.selection;
+    if (before?.kind !== now?.kind || before?.id !== now?.id) {
+      this.shownSelection = now;
+      for (const sel of [before, now]) {
+        if (sel?.kind === 'node') this.renderNode(sel.id, false);
+        if (sel?.kind === 'edge') this.renderEdge(sel.id);
+      }
+    }
+    this.renderOverlay();
+  }
+
+  renderAll() {
     this.edgeLayer.replaceChildren();
     this.nodeLayer.replaceChildren();
+    this.nodeEls.clear();
+    this.edgeEls.clear();
+    this.nodeGeometry.clear();
+    for (const e of this.store.diagram.edges) this.renderEdge(e.id);
+    for (const n of this.store.diagram.nodes) this.renderNode(n.id, false);
+    this.renderView();
+  }
+
+  /** Coloca `g` no lugar do elemento antigo de mesmo id (ou no fim da camada), ou remove se `g` for null. */
+  private swap(map: Map<string, SVGGElement>, layer: SVGGElement, id: string, g: SVGGElement | null) {
+    const old = map.get(id);
+    if (g) {
+      if (old) old.replaceWith(g);
+      else layer.append(g);
+      map.set(id, g);
+    } else {
+      old?.remove();
+      map.delete(id);
+    }
+  }
+
+  /** Redesenha um retângulo e, se a posição ou a largura mudou, as setas ligadas a ele. */
+  private renderNode(id: string, withEdges = true) {
+    const n = this.store.node(id);
+    this.swap(this.nodeEls, this.nodeLayer, id, n ? this.buildNode(n) : null);
+    const geometry = n ? `${n.x},${n.y},${nodeSize(n).w}` : '';
+    const moved = this.nodeGeometry.get(id) !== geometry;
+    if (n) this.nodeGeometry.set(id, geometry);
+    else this.nodeGeometry.delete(id);
+    if (!withEdges || !moved) return;
+    for (const e of this.store.diagram.edges) if (e.from === id || e.to === id) this.renderEdge(e.id);
+  }
+
+  private renderEdge(id: string) {
+    const e = this.store.edge(id);
+    const a = e && this.store.node(e.from);
+    const b = e && this.store.node(e.to);
+    this.swap(this.edgeEls, this.edgeLayer, id, e && a && b ? this.buildEdge(e.id, e.text, a, b) : null);
+  }
+
+  private buildEdge(id: string, text: string, a: DiagramNode, b: DiagramNode) {
+    const selected = this.isSelected('edge', id);
+    const g = el('g', { class: `edge${selected ? ' selected' : ''}`, 'data-edge': id });
+    const { d, label } = edgeGeometry(a, b);
+    el('path', { d, class: 'edge-hit' }, g);
+    el('path', { d, class: 'edge-line', 'marker-end': `url(#${selected ? 'arrow-sel' : 'arrow'})` }, g);
+    if (text) {
+      const w = textWidth(text) + 12;
+      el('rect', { x: label.x - w / 2, y: label.y - 11, width: w, height: 22, rx: 6, class: 'edge-label-bg' }, g);
+      el('text', { x: label.x, y: label.y, class: 'edge-label' }, g).textContent = text;
+    }
+    return g;
+  }
+
+  private buildNode(n: DiagramNode) {
+    const { w, h } = nodeSize(n);
+    const selected = this.isSelected('node', n.id);
+    const g = el('g', {
+      class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}`,
+      'data-node': n.id,
+      transform: `translate(${n.x - w / 2} ${n.y - h / 2})`,
+    });
+    if (selected) el('rect', { x: -4, y: -4, width: w + 8, height: h + 8, rx: RADIUS + 4, class: 'node-halo' }, g);
+    el('rect', { width: w, height: h, rx: RADIUS, class: 'node-rect' }, g);
+    el('text', { x: w / 2, y: h / 2, class: 'node-label' }, g).textContent = n.text;
+    el('circle', { cx: w, cy: h / 2, r: 6, class: 'handle', 'data-handle': n.id }, g);
+    const toggle = el('g', { class: 'status', 'data-toggle': n.id }, g);
+    el('title', {}, toggle).textContent = n.active ? 'Ativo — clique para inativar' : 'Inativo — clique para ativar';
+    el('circle', { cx: 11, cy: h / 2, r: 9, class: 'status-hit' }, toggle);
+    el('circle', { cx: 11, cy: h / 2, r: 4, class: 'status-dot' }, toggle);
+    return g;
+  }
+
+  private renderOverlay() {
     this.overlay.replaceChildren();
-
-    for (const e of diagram.edges) {
-      const a = byId.get(e.from);
-      const b = byId.get(e.to);
-      if (!a || !b) continue;
-      const selected = selection?.kind === 'edge' && selection.id === e.id;
-      const g = el('g', { class: `edge${selected ? ' selected' : ''}`, 'data-edge': e.id }, this.edgeLayer);
-      const { d, label } = edgeGeometry(a, b);
-      el('path', { d, class: 'edge-hit' }, g);
-      el('path', { d, class: 'edge-line', 'marker-end': `url(#${selected ? 'arrow-sel' : 'arrow'})` }, g);
-      if (e.text) {
-        const { x: mx, y: my } = label;
-        const w = textWidth(e.text) + 12;
-        el('rect', { x: mx - w / 2, y: my - 11, width: w, height: 22, rx: 6, class: 'edge-label-bg' }, g);
-        el('text', { x: mx, y: my, class: 'edge-label' }, g).textContent = e.text;
-      }
-    }
-
-    for (const n of diagram.nodes) {
-      const { w, h } = nodeSize(n);
-      const selected = selection?.kind === 'node' && selection.id === n.id;
-      const g = el(
-        'g',
-        { class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}`, 'data-node': n.id, transform: `translate(${n.x - w / 2} ${n.y - h / 2})` },
-        this.nodeLayer,
-      );
-      if (selected) el('rect', { x: -4, y: -4, width: w + 8, height: h + 8, rx: RADIUS + 4, class: 'node-halo' }, g);
-      el('rect', { width: w, height: h, rx: RADIUS, class: 'node-rect' }, g);
-      el('text', { x: w / 2, y: h / 2, class: 'node-label' }, g).textContent = n.text;
-      el('circle', { cx: w, cy: h / 2, r: 6, class: 'handle', 'data-handle': n.id }, g);
-      const toggle = el('g', { class: 'status', 'data-toggle': n.id }, g);
-      el('title', {}, toggle).textContent = n.active ? 'Ativo — clique para inativar' : 'Inativo — clique para ativar';
-      el('circle', { cx: 11, cy: h / 2, r: 9, class: 'status-hit' }, toggle);
-      el('circle', { cx: 11, cy: h / 2, r: 4, class: 'status-dot' }, toggle);
-    }
-
-    if (this.drag?.kind === 'connect') {
-      const from = byId.get(this.drag.from);
-      if (from) {
-        const p1 = borderPoint(from, this.drag.at);
-        el('line', { x1: p1.x, y1: p1.y, x2: this.drag.at.x, y2: this.drag.at.y, class: 'edge-pending', 'marker-end': 'url(#arrow-sel)' }, this.overlay);
-      }
-    }
+    if (this.drag?.kind !== 'connect') return;
+    const from = this.store.node(this.drag.from);
+    if (!from) return;
+    const p1 = borderPoint(from, this.drag.at);
+    el('line', { x1: p1.x, y1: p1.y, x2: this.drag.at.x, y2: this.drag.at.y, class: 'edge-pending', 'marker-end': 'url(#arrow-sel)' }, this.overlay);
   }
 }

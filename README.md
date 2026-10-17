@@ -1,8 +1,18 @@
 # mermaid-draw
 
-Editor visual de diagramas [Mermaid](https://mermaid.js.org/), minimalista, com drag and drop. Você desenha no canvas e o código Mermaid é gerado ao lado; edita o código e o desenho acompanha. O status dos retângulos pode ser controlado de fora, via `curl`.
+Editor visual de diagramas [Mermaid](https://mermaid.js.org/), minimalista, com drag and drop e **fine-grained reactivity**: cada retângulo e cada seta é uma unidade independente, que pode ser criada, editada ou removida sozinha — pelo canvas ou via `curl` — sem reenviar nem redesenhar o diagrama inteiro.
 
-> 🚧 Projeto em estágio inicial. O objetivo final é ser um editor focado em **lazy loading** do Mermaid (ver [Roadmap](#roadmap)); por enquanto o Mermaid é carregado junto com a página.
+> 🚧 Projeto em estágio inicial.
+
+## Fine-grained reactivity
+
+Em vez de tratar o diagrama como um bloco de texto Mermaid que é reescrito a cada mudança, o `mermaid-draw` trata cada elemento como um recurso próprio:
+
+- **Na API**, um `PATCH /api/nodes/n1` altera só o retângulo `n1`. O servidor guarda o estado estruturado (JSON) e gera o código Mermaid só quando alguém pede.
+- **Na rede**, cada mudança vira um evento pequeno (`node.updated`, `edge.added`…) enviado por Server-Sent Events a todas as abas abertas. Arrastar um retângulo manda só `{x, y}` daquele retângulo.
+- **No canvas**, cada evento redesenha só o elemento afetado. Mudar o texto ou o status de um retângulo recria só ele; as setas ligadas a ele só são redesenhadas quando ele muda de posição ou de largura.
+
+O código Mermaid e o preview continuam disponíveis como **visões derivadas** do estado.
 
 ## Componentes
 
@@ -47,68 +57,103 @@ Abra o endereço que o Vite mostrar (normalmente http://localhost:5173; se a por
 | Mover | Arraste o retângulo |
 | Remover | Selecione e aperte `Delete` |
 
-O painel da direita mostra o código Mermaid, que pode ser editado, e um preview renderizado pelo próprio Mermaid. O preview usa o layout automático do Mermaid, não as posições do canvas.
+O painel da direita mostra o código Mermaid, que pode ser editado, e um preview renderizado pelo próprio Mermaid. O preview usa o layout automático do Mermaid, não as posições do canvas. Editar o código é a única ação que troca o diagrama inteiro de uma vez.
 
 ### Como o diagrama é salvo
 
-- **Status ativo:** vira uma classe Mermaid: `classDef ativo stroke:#1f9d55,stroke-width:3px` e `class n1,n2 ativo`.
-- **Posições:** ficam em comentários `%% @pos id x y`, que o Mermaid ignora. Assim o código sozinho reconstrói o desenho.
-- **Persistência:** com o servidor rodando, o diagrama fica em `diagram.mmd` (fora do git), compartilhado por todas as abas abertas. Uma cópia também fica no `localStorage` do navegador, usada quando a API não está disponível.
+- **Fonte de verdade:** com o servidor rodando, o estado fica em `diagram.json` (fora do git), com um número de revisão (`rev`) que sobe a cada mudança. Um `diagram.mmd` do formato antigo é migrado automaticamente.
+- **Ids estáveis:** retângulos e setas têm ids fixos. Os criados no navegador recebem um id aleatório curto (ex.: `n7k2q`) para não colidir entre abas; os criados via API sem id seguem a sequência (`n4`, `e3`).
+- **No código Mermaid:** o status vira uma classe (`classDef ativo …` e `class n1,n2 ativo`) e as posições ficam em comentários `%% @pos id x y`, que o Mermaid ignora.
+- **Sem servidor:** o editor continua funcionando com uma cópia no `localStorage` do navegador.
 
 ## API (curl)
 
-O servidor do Vite (`npm run dev` ou `npm run preview`) expõe uma API em `/api`. Toda mudança feita pela API aparece na hora nos navegadores abertos. Nas rotas, `:ref` é o id (`n1`) ou o texto do retângulo (sem diferenciar maiúsculas).
+O servidor do Vite (`npm run dev` ou `npm run preview`) expõe a API em `/api`. O corpo de `POST`/`PATCH` é JSON. Nas rotas de retângulo, `:ref` é o id (`n1`) ou o texto (sem diferenciar maiúsculas); em `from`/`to` das setas vale o mesmo.
 
 ```bash
-# ativar, desativar ou alternar um retângulo
+# retângulos
+curl -X POST  localhost:5173/api/nodes      -d '{"text":"Novo","x":200,"y":150}'
+curl -X PATCH localhost:5173/api/nodes/n1   -d '{"text":"Começo"}'
+curl -X PATCH localhost:5173/api/nodes/Meio -d '{"active":true}'
+curl -X DELETE localhost:5173/api/nodes/n3
+
+# atalhos de status
 curl -X POST localhost:5173/api/nodes/n1/ativar
-curl -X POST localhost:5173/api/nodes/Meio/desativar
+curl -X POST localhost:5173/api/nodes/n1/desativar
 curl -X POST localhost:5173/api/nodes/n1/alternar
 
-# consultar
-curl localhost:5173/api/nodes
-curl localhost:5173/api/nodes/n1
-curl localhost:5173/api/diagram
+# setas (from === to cria um ciclo)
+curl -X POST  localhost:5173/api/edges    -d '{"from":"Início","to":"Meio","text":"processa"}'
+curl -X PATCH localhost:5173/api/edges/e1 -d '{"text":"vai"}'
+curl -X DELETE localhost:5173/api/edges/e1
 
-# substituir o diagrama inteiro
-curl -X PUT --data-binary @meu-diagrama.mmd localhost:5173/api/diagram
+# diagrama inteiro
+curl localhost:5173/api/diagram                                   # código Mermaid
+curl localhost:5173/api/diagram.json                              # {rev, diagram}
+curl -X PUT --data-binary @meu.mmd localhost:5173/api/diagram     # substitui tudo
 ```
 
 | Método | Rota | O que faz |
 |---|---|---|
-| `GET` | `/api/diagram` | Código Mermaid atual (`204` se ainda não há diagrama) |
-| `PUT` | `/api/diagram` | Substitui o código (corpo em texto; `400` se houver linhas inválidas) |
-| `GET` | `/api/nodes` | Lista os retângulos com `id`, `text` e `active` |
+| `GET` | `/api/nodes` | Lista os retângulos (`id`, `text`, `active`, `x`, `y`) |
+| `POST` | `/api/nodes` | Cria: `{text?, x?, y?, active?, id?}` → `201`. Sem `x`/`y`, vai para uma vaga livre |
 | `GET` | `/api/nodes/:ref` | Um retângulo |
-| `POST` | `/api/nodes/:ref/ativar` | Ativa |
-| `POST` | `/api/nodes/:ref/desativar` | Desativa |
-| `POST` | `/api/nodes/:ref/alternar` | Inverte o status |
-| `GET` | `/api/events` | Server-Sent Events com o código a cada mudança |
+| `PATCH` | `/api/nodes/:ref` | Altera só os campos enviados: `{text?, x?, y?, active?}` |
+| `DELETE` | `/api/nodes/:ref` | Remove o retângulo e as setas ligadas a ele |
+| `POST` | `/api/nodes/:ref/ativar` · `desativar` · `alternar` | Atalhos para o status |
+| `GET` | `/api/edges` | Lista as setas (`id`, `from`, `to`, `text`) |
+| `POST` | `/api/edges` | Cria: `{from, to, text?, id?}` → `201` |
+| `GET` | `/api/edges/:id` | Uma seta |
+| `PATCH` | `/api/edges/:id` | Altera `{text?, from?, to?}` |
+| `DELETE` | `/api/edges/:id` | Remove |
+| `GET` | `/api/diagram` | Código Mermaid gerado na hora (`204` se ainda não há diagrama) |
+| `PUT` | `/api/diagram` | Substitui tudo a partir de código Mermaid (mantém os ids das setas que continuam iguais) |
+| `GET` | `/api/diagram.json` | Estado completo: `{rev, diagram}` |
+| `PUT` | `/api/diagram.json` | Substitui tudo a partir de `{nodes, edges}` |
+| `GET` | `/api/events` | Server-Sent Events: um `snapshot` ao conectar e depois um evento por mudança |
 
-Respostas de erro: `404` quando o retângulo não existe e `409` quando mais de um retângulo tem o mesmo texto (use o id).
+Toda resposta traz o cabeçalho `X-Rev` com a revisão atual. Erros: `400` (campo ou JSON inválido), `404` (elemento não existe), `409` (id repetido, seta duplicada ou texto que corresponde a mais de um retângulo — use o id).
 
-Exemplo de resposta:
+### Eventos
+
+Cada evento traz `rev` e `source` (quem fez a mudança: o id da aba ou `api`). Se uma aba perceber um salto em `rev`, ela recarrega o estado com `GET /api/diagram.json`.
 
 ```json
-{ "id": "n1", "text": "Início", "active": true }
+{ "type": "node.updated", "node": { "id": "n2", "text": "Meio", "x": 333, "y": 100 }, "rev": 7, "source": "api" }
 ```
+
+| Tipo | Conteúdo |
+|---|---|
+| `snapshot` | `diagram` inteiro (ou `null`), enviado ao conectar |
+| `node.added` · `node.updated` | `node` |
+| `node.removed` | `id` e `edges` (ids das setas removidas junto) |
+| `edge.added` · `edge.updated` | `edge` |
+| `edge.removed` | `id` |
+| `diagram.replaced` | `diagram` inteiro (após um `PUT`) |
 
 ### Variáveis de ambiente
 
 | Variável | Para quê |
 |---|---|
-| `MERMAID_DRAW_FILE` | Arquivo onde a API guarda o diagrama (padrão: `diagram.mmd` na raiz do projeto) |
+| `MERMAID_DRAW_FILE` | Arquivo onde a API guarda o estado (padrão: `diagram.json` na raiz do projeto) |
 
 No WSL, o Vite usa polling automaticamente para perceber mudanças em arquivos de `/mnt/c`.
 
-## Estrutura
+## Desenvolvimento
+
+```bash
+npm test          # testes (vitest): operações e API
+npm run build     # checagem de tipos + build
+```
 
 ```
 index.html         layout da página
 src/model.ts       modelo do diagrama, geração e leitura do código Mermaid
-src/store.ts       estado (diagrama, seleção, modo) e notificações de mudança
-src/canvas.ts      canvas SVG: drag and drop, setas, ciclos, edição de texto
-src/main.ts        paleta, painel de código, preview e sincronização com a API
+src/ops.ts         operações granulares (criar/alterar/remover) e seus eventos — usadas no navegador e no servidor
+src/store.ts       estado no navegador (diagrama, seleção, modo); avisa exatamente o que mudou
+src/canvas.ts      canvas SVG: drag and drop, setas, ciclos, edição de texto; redesenha só o elemento afetado
+src/sync.ts        sincronização com a API: uma requisição por mudança, eventos do servidor aplicados um a um
+src/main.ts        paleta, painel de código, preview
 src/style.css      estilos (tema claro e escuro)
 server/api.ts      plugin do Vite com a API HTTP e os Server-Sent Events
 ```
@@ -119,8 +164,8 @@ server/api.ts      plugin do Vite com a API HTTP e os Server-Sent Events
 - [x] Retângulo arredondado com texto
 - [x] Seta com texto, incluindo ciclos
 - [x] Código Mermaid sincronizado nos dois sentidos, com preview
-- [x] Status ativo/inativo, também via API
-- [ ] Carregamento lazy do Mermaid (`import()` dinâmico só quando há algo para desenhar)
+- [x] Status ativo/inativo
+- [x] Fine-grained reactivity: API e sincronização por elemento, canvas redesenhando só o que mudou
 - [ ] Exportar SVG/PNG
 
 ## Licença

@@ -2,3 +2,4 @@ node_modules
 dist
 *.log
 diagram.mmd
+diagram.json
