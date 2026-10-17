@@ -36,8 +36,15 @@ const CLASS_RE = new RegExp(`^class\\s+(${ID}(?:\\s*,\\s*${ID})*)\\s+(${ID})$`);
 const OWNER_RE = new RegExp(`^%%\\s*@owner\\s+(${ID})\\s+(.+)$`);
 const POS_RE = new RegExp(`^%%\\s*@pos\\s+(${ID})\\s+(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)$`);
 
-const escape = (s: string) => s.replace(/"/g, '#quot;');
-const unescape = (s: string) => s.replace(/#quot;/g, '"');
+// `<` e `>` também são escapados: o texto nunca pode ser lido como o HTML que separa o responsável.
+const escape = (s: string) => s.replace(/"/g, '#quot;').replace(/</g, '#lt;').replace(/>/g, '#gt;');
+const unescape = (s: string) => s.replace(/#quot;/g, '"').replace(/#lt;/g, '<').replace(/#gt;/g, '>');
+
+/** O responsável vai dentro do texto do retângulo, numa segunda linha, para o Mermaid desenhá-lo. */
+const OWNER_MARK = '👤';
+const LABEL_RE = new RegExp(`^(.*)<br/><small>${OWNER_MARK} (.+)</small>$`);
+const labelOf = (n: DiagramNode) =>
+  n.owner ? `${escape(n.text)}<br/><small>${OWNER_MARK} ${escape(n.owner)}</small>` : escape(n.text);
 
 export const OWNER_MAX = 60;
 /** Responsável em uma linha só: espaços repetidos e quebras viram um espaço. */
@@ -49,10 +56,11 @@ export const ACTIVE_COLOR = '#1f9d55';
 /**
  * Gera o código Mermaid. As posições do canvas vão em comentários `%% @pos`,
  * que o Mermaid ignora, para que o código sozinho reconstrua o desenho.
+ * O responsável vai no texto do retângulo, para aparecer também no desenho do Mermaid.
  */
 export function toMermaid(d: Diagram): string {
   const lines = ['flowchart LR'];
-  for (const n of d.nodes) lines.push(`    ${n.id}("${escape(n.text)}")`);
+  for (const n of d.nodes) lines.push(`    ${n.id}("${labelOf(n)}")`);
   for (const e of d.edges) {
     lines.push(e.text ? `    ${e.from} -->|"${escape(e.text)}"| ${e.to}` : `    ${e.from} --> ${e.to}`);
   }
@@ -63,7 +71,6 @@ export function toMermaid(d: Diagram): string {
   }
   if (d.nodes.length) lines.push('');
   for (const n of d.nodes) lines.push(`%% @pos ${n.id} ${Math.round(n.x)} ${Math.round(n.y)}`);
-  for (const n of d.nodes) if (n.owner) lines.push(`%% @owner ${n.id} ${n.owner}`);
   return lines.join('\n');
 }
 
@@ -99,7 +106,8 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
     }
     const owner = OWNER_RE.exec(line);
     if (owner) {
-      owners.set(owner[1], cleanOwner(owner[2]).slice(0, OWNER_MAX));
+      // Formato antigo (comentário): só vale se o texto do retângulo não trouxer o responsável.
+      if (!owners.has(owner[1])) owners.set(owner[1], cleanOwner(owner[2]).slice(0, OWNER_MAX));
       return;
     }
     if (line.startsWith('%%') || line.startsWith('classDef ') || HEADER_RE.test(line)) return;
@@ -112,7 +120,10 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
 
     const node = NODE_RE.exec(line);
     if (node) {
-      ensureNode(node[1]).text = unescape(node[2] ?? node[3] ?? '');
+      const raw = node[2] ?? node[3] ?? '';
+      const parts = LABEL_RE.exec(raw);
+      ensureNode(node[1]).text = unescape(parts ? parts[1] : raw);
+      if (parts) owners.set(node[1], cleanOwner(unescape(parts[2])).slice(0, OWNER_MAX));
       return;
     }
 

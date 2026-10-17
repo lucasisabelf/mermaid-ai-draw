@@ -135,15 +135,35 @@ describe('eventos', () => {
 });
 
 describe('Mermaid', () => {
-  it('o responsável vai e volta pelo comentário @owner', () => {
+  it('o responsável vai e volta dentro do texto do retângulo', () => {
     const d = sample();
     ops.updateNode(d, 'n2', { owner: 'Maria Souza', active: true });
     const code = toMermaid(d);
-    expect(code).toContain('%% @owner n2 Maria Souza');
+    expect(code).toContain('n2("Meio<br/><small>👤 Maria Souza</small>")');
+    expect(code).not.toContain('@owner');
     const { diagram, errors } = parseMermaid(code);
     expect(errors).toEqual([]);
     expect(diagram.nodes.map((n) => n.owner)).toEqual([undefined, 'Maria Souza', undefined]);
     expect(diagram.nodes[1].active).toBe(true);
+    expect(diagram.nodes[1].text).toBe('Meio');
+  });
+
+  it('aspas e sinais < > no texto e no responsável sobrevivem à ida e volta', () => {
+    const d = sample();
+    ops.updateNode(d, 'n1', { text: 'Aprovar "A" <b>já</b>', owner: 'Zé <ze@x.com> "Chefe"' });
+    const code = toMermaid(d);
+    expect(code).not.toContain('<b>');
+    const { diagram, errors } = parseMermaid(code);
+    expect(errors).toEqual([]);
+    expect(diagram.nodes[0]).toMatchObject({ text: 'Aprovar "A" <b>já</b>', owner: 'Zé <ze@x.com> "Chefe"' });
+  });
+
+  it('ainda lê o responsável no formato antigo (comentário @owner)', () => {
+    const { diagram } = parseMermaid('flowchart LR\n    n1("A")\n    n2("B")\n%% @owner n2 Ana Lima');
+    expect(diagram.nodes.map((n) => n.owner)).toEqual([undefined, 'Ana Lima']);
+    // o texto do retângulo tem prioridade sobre o comentário
+    const both = parseMermaid('flowchart LR\n    n1("A<br/><small>👤 Bia</small>")\n%% @owner n1 Ana Lima');
+    expect(both.diagram.nodes[0]).toMatchObject({ text: 'A', owner: 'Bia' });
   });
 
   it('ler o código mantém os ids das setas que já existiam', () => {

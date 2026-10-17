@@ -99,22 +99,24 @@ describe('API granular', () => {
     const r = await call('PATCH', '/nodes/Meio', { owner: '  Maria   Souza ', active: true });
     expect(r.json).toMatchObject({ id: 'n2', active: true, owner: 'Maria Souza' });
     expect((await call('GET', '/nodes/n1')).json.owner).toBeNull();
-    expect((await call('GET', '/diagram')).text).toContain('%% @owner n2 Maria Souza');
+    expect((await call('GET', '/diagram')).text).toContain('n2("Meio<br/><small>👤 Maria Souza</small>")');
     expect((await call('PATCH', '/nodes/n2', { owner: 'João' })).json.owner).toBe('João');
     expect((await call('PATCH', '/nodes/n2', { owner: null })).json.owner).toBeNull();
     expect((await call('PATCH', '/nodes/n2', { owner: 'x' })).status).toBe(200);
     expect((await call('PATCH', '/nodes/n2', { owner: '' })).json.owner).toBeNull();
-    expect((await call('GET', '/diagram')).text).not.toContain('@owner');
+    expect((await call('GET', '/diagram')).text).not.toContain('👤');
     expect((await call('PATCH', '/nodes/n2', { owner: 42 })).status).toBe(400);
     expect((await call('PATCH', '/nodes/n2', { owner: 'x'.repeat(61) })).status).toBe(400);
     expect((await call('POST', '/nodes', { text: 'Novo', owner: 'Ana' })).json.owner).toBe('Ana');
   });
 
-  it('PUT de código lê o responsável do comentário @owner', async () => {
+  it('PUT de código lê o responsável do texto do retângulo (e do comentário antigo)', async () => {
     await start();
-    await call('PUT', '/diagram', SAMPLE + '\n%% @owner n1 Ana Lima');
-    expect((await call('GET', '/nodes/n1')).json.owner).toBe('Ana Lima');
-    expect((await call('GET', '/diagram.json')).json.diagram.nodes[0].owner).toBe('Ana Lima');
+    await call('PUT', '/diagram', SAMPLE.replace('n1("Início")', 'n1("Início<br/><small>👤 Ana Lima</small>")'));
+    expect((await call('GET', '/nodes/n1')).json).toMatchObject({ text: 'Início', owner: 'Ana Lima' });
+    await call('PUT', '/diagram', SAMPLE + '\n%% @owner n2 Bia');
+    expect((await call('GET', '/nodes/n2')).json.owner).toBe('Bia');
+    expect((await call('GET', '/diagram')).text).toContain('n2("Meio<br/><small>👤 Bia</small>")');
   });
 
   it('DELETE de retângulo remove as setas dele', async () => {

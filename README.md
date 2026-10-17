@@ -54,7 +54,7 @@ Abra o endereço que o Vite mostrar (normalmente http://localhost:5173; se a por
 | Criar ciclo | Arraste a bolinha para fora e volte ao mesmo retângulo, ou solte "Seta" sobre ele e clique nele mesmo |
 | Editar texto | Duplo clique no retângulo ou na seta. `Enter` confirma, `Esc` cancela |
 | Ativar/inativar | Clique na bolinha à esquerda do retângulo, ou selecione e aperte `A` |
-| Definir o responsável | Selecione o retângulo e clique em "+ responsável", ou aperte `R`. O nome aparece numa segunda linha dentro do retângulo |
+| Definir o responsável | Selecione o retângulo e clique em "+ responsável", ou aperte `R`. O nome aparece numa segunda linha dentro do retângulo, no canvas e no preview |
 | Trocar ou remover o responsável | Duplo clique na linha do nome (ou `R`). Esvaziar o campo remove o responsável |
 | Mover | Arraste o retângulo |
 | Remover | Selecione e aperte `Delete` |
@@ -65,7 +65,13 @@ O painel da direita mostra o código Mermaid, que pode ser editado, e um preview
 
 - **Fonte de verdade:** com o servidor rodando, o estado fica em `diagram.json` (fora do git), com um número de revisão (`rev`) que sobe a cada mudança. Um `diagram.mmd` do formato antigo é migrado automaticamente.
 - **Ids estáveis:** retângulos e setas têm ids fixos. Os criados no navegador recebem um id aleatório curto (ex.: `n7k2q`) para não colidir entre abas; os criados via API sem id seguem a sequência (`n4`, `e3`).
-- **No código Mermaid:** o status vira uma classe (`classDef ativo …` e `class n1,n2 ativo`). As posições e os responsáveis ficam em comentários (`%% @pos id x y` e `%% @owner id Nome`), que o Mermaid ignora. Por isso o preview do Mermaid não mostra o responsável; só o canvas mostra.
+- **No código Mermaid:** o status vira uma classe (`classDef ativo …` e `class n1,n2 ativo`) e as posições ficam em comentários `%% @pos id x y`, que o Mermaid ignora. O responsável vai **dentro do texto do retângulo**, numa segunda linha, para aparecer também no desenho do Mermaid:
+
+  ```
+  n2("Meio<br/><small>👤 Maria Souza</small>")
+  ```
+
+  Dá para escrever isso à mão no painel de código, e o canvas acompanha. `<`, `>` e aspas no texto são guardados como `#lt;`, `#gt;` e `#quot;`. O formato antigo, com um comentário `%% @owner n2 Maria Souza`, ainda é lido.
 - **Sem servidor:** o editor continua funcionando com uma cópia no `localStorage` do navegador.
 
 ## API (curl)
