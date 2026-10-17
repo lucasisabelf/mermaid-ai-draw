@@ -2,7 +2,7 @@
 
 Editor de diagramas [Mermaid](https://mermaid.js.org/) minimalista, focado em **lazy loading**: o diagrama é carregado e renderizado de forma dinâmica, sob demanda, à medida que você edita.
 
-> 🚧 Projeto em estágio inicial.
+> 🚧 Projeto em estágio inicial: o editor com drag and drop já funciona; o lazy loading ainda não foi implementado.
 
 ## Ideia
 
@@ -29,12 +29,28 @@ flowchart LR
     B -->|finaliza| C(Fim)
 ```
 
+## Como usar
+
+```bash
+npm install
+npm run dev
+```
+
+- **Retângulo:** arraste da paleta para o canvas (ou clique nele, ou dê duplo clique no canvas vazio).
+- **Seta:** arraste a bolinha azul na lateral de um retângulo até outro, ou solte a "Seta" da paleta sobre o retângulo de origem e clique no destino. Clicar em "Seta" ativa o modo seta.
+- **Texto:** duplo clique no retângulo ou na seta. `Enter` confirma, `Esc` cancela.
+- **Mover:** arraste o retângulo.
+- **Remover:** selecione e aperte `Delete`.
+
+O código Mermaid ao lado é atualizado enquanto você desenha, e editar o código também atualiza o canvas. As posições ficam em comentários `%% @pos id x y`, que o Mermaid ignora. O diagrama é salvo no `localStorage` do navegador.
+
 ## Roadmap
 
-- [ ] Editor de texto com preview ao vivo
+- [x] Canvas com drag and drop
+- [x] Retângulo arredondado com texto
+- [x] Seta com texto
+- [x] Código Mermaid sincronizado nos dois sentidos, com preview
 - [ ] Carregamento lazy do Mermaid
-- [ ] Retângulo arredondado com texto
-- [ ] Seta com texto
 - [ ] Exportar SVG/PNG
 
 ## Licença

@@ -1,0 +1,162 @@
+import mermaid from 'mermaid';
+import './style.css';
+import { Canvas, DND_TYPE } from './canvas';
+import { parseMermaid, toMermaid, type Diagram } from './model';
+import { Store } from './store';
+
+const STORAGE_KEY = 'mermaid-draw:code';
+
+const SAMPLE = `flowchart LR
+    n1("Início")
+    n2("Meio")
+    n3("Fim")
+    n1 -->|"processa"| n2
+    n2 -->|"finaliza"| n3
+
+%% @pos n1 140 120
+%% @pos n2 380 120
+%% @pos n3 620 120`;
+
+const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
+const codeEl = $<HTMLTextAreaElement>('#code');
+const errorsEl = $('#errors');
+const previewEl = $('#preview');
+const hintEl = $('#hint');
+
+function loadInitial(): Diagram {
+  let code = SAMPLE;
+  try {
+    code = localStorage.getItem(STORAGE_KEY) ?? SAMPLE;
+  } catch {}
+  return parseMermaid(code).diagram;
+}
+
+const store = new Store(loadInitial());
+const canvas = new Canvas($('#canvas'), store);
+
+mermaid.initialize({
+  startOnLoad: false,
+  theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+  flowchart: { htmlLabels: true },
+});
+
+let renderSeq = 0;
+async function renderPreview(code: string) {
+  const seq = ++renderSeq;
+  try {
+    const { svg } = await mermaid.render(`preview-${seq}`, code);
+    if (seq === renderSeq) previewEl.innerHTML = svg;
+  } catch (err) {
+    if (seq === renderSeq) previewEl.textContent = `Erro no Mermaid: ${(err as Error).message}`;
+  }
+}
+
+function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
+  let t: number | undefined;
+  return (...args: A) => {
+    clearTimeout(t);
+    t = window.setTimeout(() => fn(...args), ms);
+  };
+}
+
+const schedulePreview = debounce(renderPreview, 200);
+
+function save(code: string) {
+  try {
+    localStorage.setItem(STORAGE_KEY, code);
+  } catch {}
+}
+
+function updateHint() {
+  hintEl.textContent = canvas.connecting
+    ? 'Clique (ou solte) sobre o retângulo de destino. Esc cancela.'
+    : store.mode === 'arrow'
+      ? 'Modo seta: arraste de um retângulo até outro. Esc volta ao modo seleção.'
+      : 'Arraste os componentes para o canvas. Duplo clique edita o texto. Delete remove.';
+  document.querySelector('[data-tool="arrow"]')!.classList.toggle('active', store.mode === 'arrow');
+}
+
+store.subscribe((change) => {
+  updateHint();
+  if (change === 'view') return;
+  const code = toMermaid(store.diagram);
+  if (change === 'canvas') {
+    codeEl.value = code;
+    errorsEl.replaceChildren();
+  }
+  save(code);
+  schedulePreview(code);
+});
+
+// ---- código → canvas -----------------------------------------------------
+
+codeEl.addEventListener(
+  'input',
+  debounce(() => {
+    const { diagram, errors } = parseMermaid(codeEl.value, store.diagram);
+    errorsEl.replaceChildren(
+      ...errors.map((msg) => Object.assign(document.createElement('div'), { textContent: msg })),
+    );
+    if (!errors.length) store.setDiagram(diagram, 'code');
+  }, 300),
+);
+
+// ---- paleta ----------------------------------------------------------------
+
+for (const tool of document.querySelectorAll<HTMLElement>('[data-tool]')) {
+  const kind = tool.dataset.tool!;
+  tool.addEventListener('dragstart', (e) => {
+    e.dataTransfer!.setData(DND_TYPE, kind);
+    e.dataTransfer!.effectAllowed = 'copy';
+  });
+  const activate = () => {
+    if (kind === 'arrow') {
+      store.setMode(store.mode === 'arrow' ? 'select' : 'arrow');
+    } else {
+      const r = $('#canvas').getBoundingClientRect();
+      const n = store.addNode(r.width / 2 + (Math.random() - 0.5) * 80, r.height / 2 + (Math.random() - 0.5) * 80);
+      canvas.edit('node', n.id);
+    }
+  };
+  tool.addEventListener('click', activate);
+  tool.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      activate();
+    }
+  });
+}
+
+// ---- teclado e barra superior ----------------------------------------------
+
+document.addEventListener('keydown', (e) => {
+  const t = e.target as HTMLElement;
+  if (t.matches('input, textarea')) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault();
+    store.removeSelected();
+  } else if (e.key === 'Escape') {
+    if (canvas.connecting) canvas.cancel();
+    else if (store.mode === 'arrow') store.setMode('select');
+    else store.select(null);
+  }
+});
+
+$('#btn-copy').addEventListener('click', async () => {
+  const btn = $('#btn-copy');
+  try {
+    await navigator.clipboard.writeText(codeEl.value);
+    btn.textContent = 'Copiado!';
+  } catch {
+    codeEl.select();
+    btn.textContent = 'Selecionado — Ctrl+C';
+  }
+  setTimeout(() => (btn.textContent = 'Copiar código'), 1500);
+});
+
+$('#btn-clear').addEventListener('click', () => {
+  if (store.diagram.nodes.length && !confirm('Apagar todo o diagrama?')) return;
+  store.setDiagram({ nodes: [], edges: [] }, 'canvas');
+});
+
+store.emit('canvas');
