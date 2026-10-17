@@ -253,6 +253,11 @@ button:hover {
   cursor: pointer;
 }
 
+.edge-hit,
+.edge-line {
+  fill: none;
+}
+
 .edge-hit {
   stroke: transparent;
   stroke-width: 14;

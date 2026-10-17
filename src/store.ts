@@ -59,7 +59,6 @@ export class Store {
   }
 
   addEdge(from: string, to: string, text = ''): DiagramEdge | undefined {
-    if (from === to) return;
     if (this.diagram.edges.some((e) => e.from === from && e.to === to)) return;
     const e = { id: nextId('e', this.diagram.edges.map((e) => e.id)), from, to, text };
     this.diagram.edges.push(e);

@@ -21,7 +21,15 @@ export function nodeSize(n: DiagramNode) {
 type Point = { x: number; y: number };
 type Drag =
   | { kind: 'move'; id: string; dx: number; dy: number }
-  | { kind: 'connect'; from: string; at: Point; /** iniciada por drop da paleta: termina no próximo clique */ sticky: boolean };
+  | {
+      kind: 'connect';
+      from: string;
+      at: Point;
+      /** iniciada por drop da paleta: termina no próximo clique */
+      sticky: boolean;
+      /** o ponteiro chegou a se mover; um clique parado no próprio retângulo não vira ciclo */
+      moved: boolean;
+    };
 
 function el<K extends keyof SVGElementTagNameMap>(
   tag: K,
@@ -42,6 +50,25 @@ function borderPoint(n: DiagramNode, toward: Point): Point {
   if (!dx && !dy) return { x: n.x, y: n.y };
   const t = Math.min(dx ? w / 2 / Math.abs(dx) : Infinity, dy ? h / 2 / Math.abs(dy) : Infinity);
   return { x: n.x + dx * t, y: n.y + dy * t };
+}
+
+const LOOP_SPREAD = 18;
+const LOOP_HEIGHT = 60;
+
+/** Caminho da seta e posição do texto. `a === b` é um ciclo: um laço por cima do retângulo. */
+function edgeGeometry(a: DiagramNode, b: DiagramNode): { d: string; label: Point } {
+  if (a === b) {
+    const top = a.y - nodeSize(a).h / 2;
+    const x1 = a.x - LOOP_SPREAD;
+    const x2 = a.x + LOOP_SPREAD;
+    return {
+      d: `M ${x1} ${top} C ${x1 - 36} ${top - LOOP_HEIGHT}, ${x2 + 36} ${top - LOOP_HEIGHT}, ${x2} ${top}`,
+      label: { x: a.x, y: top - LOOP_HEIGHT * 0.75 - 16 },
+    };
+  }
+  const p1 = borderPoint(a, b);
+  const p2 = borderPoint(b, a);
+  return { d: `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`, label: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
 }
 
 export class Canvas {
@@ -133,7 +160,7 @@ export class Canvas {
 
     if (handle || (nodeEl && this.store.mode === 'arrow')) {
       const from = (handle?.dataset.handle ?? nodeEl!.dataset.node)!;
-      this.drag = { kind: 'connect', from, at: p, sticky: false };
+      this.drag = { kind: 'connect', from, at: p, sticky: false, moved: false };
       this.svg.setPointerCapture(e.pointerId);
       this.store.emit('view');
       return;
@@ -163,6 +190,7 @@ export class Canvas {
       n.y = p.y - d.dy;
       this.store.emit('canvas');
     } else {
+      if (Math.hypot(p.x - d.at.x, p.y - d.at.y) > 4) d.moved = true;
       d.at = p;
       this.render();
     }
@@ -174,9 +202,11 @@ export class Canvas {
   };
 
   private finishConnect(e: PointerEvent) {
-    const from = this.drag?.kind === 'connect' ? this.drag.from : undefined;
+    const d = this.drag?.kind === 'connect' ? this.drag : undefined;
     this.drag = null;
+    const from = d?.from;
     const to = this.nodeAt(e.clientX, e.clientY);
+    if (to === from && !d?.moved) return this.store.emit('view');
     const edge = from && to ? this.store.addEdge(from, to) : undefined;
     if (edge) this.edit('edge', edge.id);
     else this.store.emit('view');
@@ -206,7 +236,7 @@ export class Canvas {
       // Soltar a seta sobre um retângulo define a origem; o próximo clique define o destino.
       const from = this.nodeAt(e.clientX, e.clientY);
       if (!from) return;
-      this.drag = { kind: 'connect', from, at: p, sticky: true };
+      this.drag = { kind: 'connect', from, at: p, sticky: true, moved: true };
       this.store.select({ kind: 'node', id: from });
     }
   };
@@ -227,7 +257,7 @@ export class Canvas {
       const a = e && this.store.node(e.from);
       const b = e && this.store.node(e.to);
       if (!e || !a || !b) return;
-      anchor = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      anchor = edgeGeometry(a, b).label;
       value = e.text;
     }
 
@@ -283,14 +313,11 @@ export class Canvas {
       if (!a || !b) continue;
       const selected = selection?.kind === 'edge' && selection.id === e.id;
       const g = el('g', { class: `edge${selected ? ' selected' : ''}`, 'data-edge': e.id }, this.edgeLayer);
-      const p1 = borderPoint(a, b);
-      const p2 = borderPoint(b, a);
-      const line = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
-      el('line', { ...line, class: 'edge-hit' }, g);
-      el('line', { ...line, class: 'edge-line', 'marker-end': `url(#${selected ? 'arrow-sel' : 'arrow'})` }, g);
+      const { d, label } = edgeGeometry(a, b);
+      el('path', { d, class: 'edge-hit' }, g);
+      el('path', { d, class: 'edge-line', 'marker-end': `url(#${selected ? 'arrow-sel' : 'arrow'})` }, g);
       if (e.text) {
-        const mx = (a.x + b.x) / 2;
-        const my = (a.y + b.y) / 2;
+        const { x: mx, y: my } = label;
         const w = textWidth(e.text) + 12;
         el('rect', { x: mx - w / 2, y: my - 11, width: w, height: 22, rx: 6, class: 'edge-label-bg' }, g);
         el('text', { x: mx, y: my, class: 'edge-label' }, g).textContent = e.text;

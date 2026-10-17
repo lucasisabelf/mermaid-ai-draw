@@ -37,7 +37,7 @@ npm run dev
 ```
 
 - **Retângulo:** arraste da paleta para o canvas (ou clique nele, ou dê duplo clique no canvas vazio).
-- **Seta:** arraste a bolinha azul na lateral de um retângulo até outro, ou solte a "Seta" da paleta sobre o retângulo de origem e clique no destino. Clicar em "Seta" ativa o modo seta.
+- **Seta:** arraste a bolinha azul na lateral de um retângulo até outro, ou solte a "Seta" da paleta sobre o retângulo de origem e clique no destino. Clicar em "Seta" ativa o modo seta. Para um ciclo, arraste a bolinha para fora e volte ao mesmo retângulo (ou solte a "Seta" nele e clique nele mesmo).
 - **Texto:** duplo clique no retângulo ou na seta. `Enter` confirma, `Esc` cancela.
 - **Mover:** arraste o retângulo.
 - **Remover:** selecione e aperte `Delete`.
@@ -47,7 +47,7 @@ O código Mermaid ao lado é atualizado enquanto você desenha, e editar o códi
 
 ## API (curl)
 
-O servidor de desenvolvimento expõe uma API em `/api`. O diagrama fica salvo em `diagram.mmd`, e qualquer navegador aberto no editor é atualizado na hora. `:ref` é o id (`n1`) ou o texto do retângulo.
+O servidor de desenvolvimento expõe uma API em `/api`. O diagrama fica salvo em `diagram.mmd` (ou no arquivo indicado em `MERMAID_DRAW_FILE`), e qualquer navegador aberto no editor é atualizado na hora. `:ref` é o id (`n1`) ou o texto do retângulo.
 
 ```bash
 # ativar, desativar ou alternar um retângulo
