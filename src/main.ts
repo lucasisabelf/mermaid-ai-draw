@@ -72,18 +72,49 @@ function updateHint() {
     ? 'Clique (ou solte) sobre o retângulo de destino. Esc cancela.'
     : store.mode === 'arrow'
       ? 'Modo seta: arraste de um retângulo até outro. Esc volta ao modo seleção.'
-      : 'Arraste os componentes para o canvas. Duplo clique edita o texto. Delete remove.';
+      : 'Arraste os componentes para o canvas. Duplo clique edita o texto. A bolinha à esquerda (ou a tecla A) ativa/inativa. Delete remove.';
   document.querySelector('[data-tool="arrow"]')!.classList.toggle('active', store.mode === 'arrow');
 }
+
+// ---- sincronização com o servidor (API em server/api.ts) -------------------
+
+const clientId = crypto.randomUUID?.() ?? String(Math.random());
+let serverOnline = false;
+
+const pushToServer = debounce((code: string) => {
+  if (!serverOnline) return;
+  fetch('/api/diagram', { method: 'PUT', headers: { 'X-Client-Id': clientId }, body: code }).catch(() => {});
+}, 300);
+
+const events = new EventSource('/api/events');
+events.onmessage = (ev) => {
+  const { code, source } = JSON.parse(ev.data) as { code: string | null; source: string };
+  const firstMessage = !serverOnline;
+  serverOnline = true;
+  if (source === clientId) return;
+  // Servidor ainda sem diagrama: ele adota o deste navegador.
+  if (code === null) {
+    if (firstMessage) pushToServer(toMermaid(store.diagram));
+    return;
+  }
+  if (code === toMermaid(store.diagram)) return;
+  store.setDiagram(parseMermaid(code, store.diagram).diagram, 'remote');
+};
+events.onerror = () => {
+  serverOnline = false;
+  // Sem API (ex.: build estático servido por outro servidor): segue só com localStorage.
+  if (events.readyState === EventSource.CLOSED) events.close();
+};
 
 store.subscribe((change) => {
   updateHint();
   if (change === 'view') return;
   const code = toMermaid(store.diagram);
-  if (change === 'canvas') {
+  if (change !== 'code') {
     codeEl.value = code;
     errorsEl.replaceChildren();
   }
+  if (change !== 'remote') pushToServer(code);
   save(code);
   schedulePreview(code);
 });
@@ -135,6 +166,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
     store.removeSelected();
+  } else if (e.key.toLowerCase() === 'a' && store.selection?.kind === 'node' && !e.ctrlKey && !e.metaKey) {
+    store.toggleActive(store.selection.id);
   } else if (e.key === 'Escape') {
     if (canvas.connecting) canvas.cancel();
     else if (store.mode === 'arrow') store.setMode('select');

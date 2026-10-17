@@ -11,6 +11,8 @@
   --edge: #6b7385;
   --grid: #dfe2e8;
   --danger: #c4372f;
+  --active: #1f9d55;
+  --inactive: #b4bac5;
   color-scheme: light;
 }
 
@@ -28,6 +30,8 @@
     --edge: #9aa2b1;
     --grid: #262a33;
     --danger: #ff7a70;
+    --active: #3ccf7a;
+    --inactive: #4f5664;
     color-scheme: dark;
   }
 }
@@ -193,9 +197,34 @@ button:hover {
   stroke-width: 1.5;
 }
 
-.node.selected .node-rect {
+/* A borda verde do ativo é fixa: seleção e hover não a alteram. */
+.node.active .node-rect {
+  stroke: var(--active);
+  stroke-width: 3;
+}
+
+.node-halo {
+  fill: none;
   stroke: var(--accent);
-  stroke-width: 2.5;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.status {
+  cursor: pointer;
+}
+
+.status-hit {
+  fill: transparent;
+}
+
+.status-dot {
+  fill: var(--inactive);
+}
+
+.node.active .status-dot {
+  fill: var(--active);
 }
 
 .node-label,

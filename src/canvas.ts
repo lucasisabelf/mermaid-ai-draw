@@ -110,6 +110,14 @@ export class Canvas {
       return;
     }
 
+    const toggle = target.closest<SVGElement>('[data-toggle]');
+    if (toggle) {
+      this.lastDown = { key: '', time: 0 };
+      this.store.selection = { kind: 'node', id: toggle.dataset.toggle! };
+      this.store.toggleActive(toggle.dataset.toggle!);
+      return;
+    }
+
     const handle = target.closest<SVGElement>('[data-handle]');
     const nodeEl = target.closest<SVGElement>('[data-node]');
     const edgeEl = target.closest<SVGElement>('[data-edge]');
@@ -294,12 +302,17 @@ export class Canvas {
       const selected = selection?.kind === 'node' && selection.id === n.id;
       const g = el(
         'g',
-        { class: `node${selected ? ' selected' : ''}`, 'data-node': n.id, transform: `translate(${n.x - w / 2} ${n.y - h / 2})` },
+        { class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}`, 'data-node': n.id, transform: `translate(${n.x - w / 2} ${n.y - h / 2})` },
         this.nodeLayer,
       );
+      if (selected) el('rect', { x: -4, y: -4, width: w + 8, height: h + 8, rx: RADIUS + 4, class: 'node-halo' }, g);
       el('rect', { width: w, height: h, rx: RADIUS, class: 'node-rect' }, g);
       el('text', { x: w / 2, y: h / 2, class: 'node-label' }, g).textContent = n.text;
       el('circle', { cx: w, cy: h / 2, r: 6, class: 'handle', 'data-handle': n.id }, g);
+      const toggle = el('g', { class: 'status', 'data-toggle': n.id }, g);
+      el('title', {}, toggle).textContent = n.active ? 'Ativo — clique para inativar' : 'Inativo — clique para ativar';
+      el('circle', { cx: 11, cy: h / 2, r: 9, class: 'status-hit' }, toggle);
+      el('circle', { cx: 11, cy: h / 2, r: 4, class: 'status-dot' }, toggle);
     }
 
     if (this.drag?.kind === 'connect') {

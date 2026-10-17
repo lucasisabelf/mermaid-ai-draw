@@ -2,8 +2,11 @@ import { nextId, type Diagram, type DiagramEdge, type DiagramNode } from './mode
 
 export type Selection = { kind: 'node' | 'edge'; id: string } | null;
 export type Mode = 'select' | 'arrow';
-/** `view`: só seleção/modo mudou. `canvas` e `code`: o diagrama mudou, e de onde veio. */
-export type Change = 'view' | 'canvas' | 'code';
+/**
+ * `view`: só seleção/modo mudou. `canvas`, `code` e `remote`: o diagrama mudou, e de onde veio
+ * (`remote` = servidor, por exemplo um curl na API).
+ */
+export type Change = 'view' | 'canvas' | 'code' | 'remote';
 
 export class Store {
   selection: Selection = null;
@@ -29,8 +32,11 @@ export class Store {
   }
 
   setDiagram(d: Diagram, change: Change) {
+    const sel = this.selection;
     this.diagram = d;
-    this.selection = null;
+    // Mudanças remotas não devem tirar a seleção de quem está editando.
+    const keep = change === 'remote' && sel && (sel.kind === 'node' ? this.node(sel.id) : this.edge(sel.id));
+    this.selection = keep ? sel : null;
     this.emit(change);
   }
 
@@ -60,6 +66,13 @@ export class Store {
     this.selection = { kind: 'edge', id: e.id };
     this.emit('canvas');
     return e;
+  }
+
+  toggleActive(id: string) {
+    const n = this.node(id);
+    if (!n) return;
+    n.active = !n.active;
+    this.emit('canvas');
   }
 
   removeSelected() {

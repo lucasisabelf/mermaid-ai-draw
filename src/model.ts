@@ -4,6 +4,8 @@ export interface DiagramNode {
   /** Centro do retângulo, em pixels do canvas. */
   x: number;
   y: number;
+  /** Retângulos ativos ganham a borda verde (classe Mermaid `ativo`). */
+  active?: boolean;
 }
 
 export interface DiagramEdge {
@@ -27,10 +29,14 @@ const ID = '[A-Za-z_][\\w-]*';
 const HEADER_RE = /^(flowchart|graph)(\s+(TB|TD|BT|LR|RL))?$/;
 const NODE_RE = new RegExp(`^(${ID})\\((?:"([^"]*)"|([^()"]*))\\)$`);
 const EDGE_RE = new RegExp(`^(${ID})\\s*-->\\s*(?:\\|(?:"([^"]*)"|([^|"]*))\\|\\s*)?(${ID})$`);
+const CLASS_RE = new RegExp(`^class\\s+(${ID}(?:\\s*,\\s*${ID})*)\\s+(${ID})$`);
 const POS_RE = new RegExp(`^%%\\s*@pos\\s+(${ID})\\s+(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)$`);
 
 const escape = (s: string) => s.replace(/"/g, '#quot;');
 const unescape = (s: string) => s.replace(/#quot;/g, '"');
+
+export const ACTIVE_CLASS = 'ativo';
+export const ACTIVE_COLOR = '#1f9d55';
 
 /**
  * Gera o código Mermaid. As posições do canvas vão em comentários `%% @pos`,
@@ -41,6 +47,11 @@ export function toMermaid(d: Diagram): string {
   for (const n of d.nodes) lines.push(`    ${n.id}("${escape(n.text)}")`);
   for (const e of d.edges) {
     lines.push(e.text ? `    ${e.from} -->|"${escape(e.text)}"| ${e.to}` : `    ${e.from} --> ${e.to}`);
+  }
+  const active = d.nodes.filter((n) => n.active).map((n) => n.id);
+  if (active.length) {
+    lines.push(`    classDef ${ACTIVE_CLASS} stroke:${ACTIVE_COLOR},stroke-width:3px`);
+    lines.push(`    class ${active.join(',')} ${ACTIVE_CLASS}`);
   }
   if (d.nodes.length) lines.push('');
   for (const n of d.nodes) lines.push(`%% @pos ${n.id} ${Math.round(n.x)} ${Math.round(n.y)}`);
@@ -56,6 +67,7 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
   const nodes = new Map<string, DiagramNode>();
   const edges: DiagramEdge[] = [];
   const positions = new Map<string, { x: number; y: number }>();
+  const activeIds = new Set<string>();
 
   const ensureNode = (id: string) => {
     let n = nodes.get(id);
@@ -75,7 +87,13 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
       positions.set(pos[1], { x: Number(pos[2]), y: Number(pos[3]) });
       return;
     }
-    if (line.startsWith('%%') || HEADER_RE.test(line)) return;
+    if (line.startsWith('%%') || line.startsWith('classDef ') || HEADER_RE.test(line)) return;
+
+    const cls = CLASS_RE.exec(line);
+    if (cls) {
+      if (cls[2] === ACTIVE_CLASS) for (const id of cls[1].split(',')) activeIds.add(id.trim());
+      return;
+    }
 
     const node = NODE_RE.exec(line);
     if (node) {
@@ -94,6 +112,11 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
 
     errors.push(`Linha ${i + 1}: não reconhecida — "${line}"`);
   });
+
+  for (const id of activeIds) {
+    const n = nodes.get(id);
+    if (n) n.active = true;
+  }
 
   const prev = new Map(previous?.nodes.map((n) => [n.id, n]));
   const unplaced: DiagramNode[] = [];
