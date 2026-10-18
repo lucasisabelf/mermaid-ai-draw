@@ -158,6 +158,34 @@ describe('API granular', () => {
     expect(saved.diagram.nodes[0]).toMatchObject({ id: 'n1', active: true });
   });
 
+  it('seta animada e pulso: o pulso é só um evento, sem salvar nem subir o rev', async () => {
+    await start();
+    await call('PUT', '/diagram', SAMPLE);
+    expect((await call('PATCH', '/edges/e1', { animated: true })).json).toMatchObject({ id: 'e1', animated: true });
+    expect((await call('GET', '/diagram')).text).toContain('e1@{ animate: true }');
+    const rev = (await call('GET', '/diagram.json')).json.rev;
+
+    const ctrl = new AbortController();
+    const res = await fetch(`${base}/events`, { signal: ctrl.signal });
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    const next = async () => {
+      while (!buf.includes('\n\n')) buf += decoder.decode((await reader.read()).value);
+      const [msg, ...rest] = buf.split('\n\n');
+      buf = rest.join('\n\n');
+      return JSON.parse(msg.replace(/^data: /, ''));
+    };
+    await next(); // snapshot
+    expect((await call('POST', '/edges/e1/pulse', { label: 'pedido #42' })).status).toBe(204);
+    expect(await next()).toEqual({ type: 'edge.pulse', id: 'e1', label: 'pedido #42', source: 'api' });
+    ctrl.abort();
+
+    expect((await call('GET', '/diagram.json')).json.rev).toBe(rev);
+    expect((await call('POST', '/edges/e9/pulse')).status).toBe(404);
+    expect((await call('POST', '/edges/e1/pulse', { label: 7 })).status).toBe(400);
+  });
+
   it('SSE: snapshot ao conectar e depois só o evento de cada mudança', async () => {
     await start();
     await call('PUT', '/diagram', SAMPLE);

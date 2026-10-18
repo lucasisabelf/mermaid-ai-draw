@@ -1,12 +1,15 @@
 import mermaid from 'mermaid';
 import './style.css';
 import { Canvas, DND_TYPE } from './canvas';
+import { DIAGRAM } from './diagrams';
 import { downloadPng, downloadSvg } from './export';
+import { DiagramMenu } from './menu';
 import { parseMermaid, toMermaid, type Diagram } from './model';
 import { Store } from './store';
 import { ServerSync } from './sync';
 
-const STORAGE_KEY = 'mermaid-draw:code';
+// Cópia local do código, por diagrama.
+const STORAGE_KEY = `mermaid-draw:code:${DIAGRAM}`;
 
 const SAMPLE = `flowchart LR
     n1("Início")
@@ -74,13 +77,16 @@ function updateHint() {
     ? 'Clique (ou solte) sobre o retângulo de destino. Esc cancela.'
     : store.mode === 'arrow'
       ? 'Modo seta: arraste de um retângulo até outro. Esc volta ao modo seleção.'
-      : 'Arraste os componentes para o canvas. Duplo clique edita o texto. A bolinha à esquerda (ou a tecla A) ativa/inativa. R define quem cuida da etapa. Delete remove.';
+      : store.selection?.kind === 'edge'
+        ? 'Seta selecionada: M liga/desliga a animação, P manda uma mensagem por ela, duplo clique edita o texto, Delete remove.'
+        : 'Arraste os componentes para o canvas. Duplo clique edita o texto. A bolinha à esquerda (ou a tecla A) ativa/inativa. R define quem cuida da etapa. Delete remove.';
   document.querySelector('[data-tool="arrow"]')!.classList.toggle('active', store.mode === 'arrow');
 }
 
 // ---- sincronização com o servidor (API em server/api.ts) -------------------
 
-new ServerSync(store);
+const sync = new ServerSync(store, (msg) => canvas.pulseEdge(msg.id, msg.label));
+new DiagramMenu();
 
 /** Atualiza o que depende do diagrama inteiro: painel de código, preview e cópia local. */
 function refreshDerived(fromCode: boolean) {
@@ -153,6 +159,11 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
     store.removeSelected();
+  } else if (e.key.toLowerCase() === 'm' && store.selection?.kind === 'edge' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    store.toggleAnimated(store.selection.id);
+  } else if (e.key.toLowerCase() === 'p' && store.selection?.kind === 'edge' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    // O pulso passa pelo servidor: todas as abas abertas veem a mensagem.
+    if (!sync.pulse(store.selection.id)) canvas.pulseEdge(store.selection.id);
   } else if (e.key.toLowerCase() === 'a' && store.selection?.kind === 'node' && !e.ctrlKey && !e.metaKey) {
     store.toggleActive(store.selection.id);
   } else if (e.key.toLowerCase() === 'r' && store.selection?.kind === 'node' && !e.ctrlKey && !e.metaKey && !e.altKey) {

@@ -108,6 +108,11 @@ export class Store {
     return ev.edge;
   }
 
+  toggleAnimated(id: string) {
+    const e = this.edge(id);
+    if (e) this.updateEdge(id, { animated: !e.animated });
+  }
+
   updateEdge(id: string, patch: EdgePatch) {
     this.run((d) => ops.updateEdge(d, id, patch), 'local', patch);
   }

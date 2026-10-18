@@ -1,7 +1,6 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Connect, Plugin } from 'vite';
+import type { Connect } from 'vite';
 import { parseMermaid, toMermaid, type Diagram } from '../src/model.ts';
 import * as ops from '../src/ops.ts';
 import { OpError, type DiagramEvent } from '../src/ops.ts';
@@ -18,10 +17,12 @@ import { OpError, type DiagramEvent } from '../src/ops.ts';
  *   DELETE /api/nodes/:ref                   remove (e as setas ligadas a ele)
  *   POST   /api/nodes/:ref/ativar|desativar|alternar
  *   GET    /api/edges                        lista as setas
- *   POST   /api/edges                        cria  {from, to, text?, id?}  (from/to = id ou texto)
+ *   POST   /api/edges                        cria  {from, to, text?, animated?, id?}  (from/to = id ou texto)
  *   GET    /api/edges/:id                    uma seta
- *   PATCH  /api/edges/:id                    altera {text?, from?, to?}
+ *   PATCH  /api/edges/:id                    altera {text?, from?, to?, animated?}
  *   DELETE /api/edges/:id                    remove
+ *   POST   /api/edges/:id/pulse              manda uma "mensagem" pela seta {label?}: só o evento edge.pulse,
+ *                                            sem salvar nem mudar o rev
  *   GET    /api/diagram                      código Mermaid (204 se ainda não há diagrama)
  *   PUT    /api/diagram                      substitui tudo a partir de código Mermaid
  *   GET    /api/diagram.json                 {rev, diagram}
@@ -33,7 +34,12 @@ import { OpError, type DiagramEvent } from '../src/ops.ts';
 
 type Stored = { rev: number; diagram: Diagram | null };
 
-export function createApi(filePath: string) {
+export interface ApiOptions {
+  /** Chamado depois de cada mudança no diagrama (ex.: para o menu de diagramas atualizar a lista). */
+  onChange?: () => void;
+}
+
+export function createApi(filePath: string, options: ApiOptions = {}) {
   let state: Stored = load(filePath);
   const clients = new Set<ServerResponse>();
 
@@ -51,6 +57,7 @@ export function createApi(filePath: string) {
     state = { rev: state.rev + 1, diagram: ev.type === 'diagram.replaced' ? ev.diagram : d };
     persist();
     broadcast({ ...ev, rev: state.rev, source });
+    options.onChange?.();
     return ev;
   };
 
@@ -189,6 +196,14 @@ export function createApi(filePath: string) {
             return send(res, 204);
           }
         }
+        if (parts.length === 3 && action === 'pulse' && method === 'POST') {
+          ops.getEdge(diagram(), ref);
+          const body = await readJson(req);
+          if (body.label !== undefined && typeof body.label !== 'string') throw new OpError(400, '"label" deve ser um texto.');
+          // Efêmero: não entra no estado, não sobe o rev. Quem estiver olhando vê a mensagem passar.
+          broadcast({ type: 'edge.pulse', id: ref, label: body.label?.trim() || undefined, source });
+          return send(res, 204);
+        }
       }
 
       if (parts.length) return send(res, 404, { error: `Rota não encontrada: ${method} /api${url.pathname}` });
@@ -201,6 +216,10 @@ export function createApi(filePath: string) {
 
   return {
     handler,
+    /** Resumo para a lista de diagramas. */
+    info() {
+      return { nodes: diagram().nodes.length, edges: diagram().edges.length, rev: state.rev };
+    },
     close() {
       for (const c of clients) c.end();
       clients.clear();
@@ -223,23 +242,4 @@ function load(filePath: string): Stored {
     return stored;
   }
   return { rev: 0, diagram: null };
-}
-
-export function diagramApi(file = 'diagram.json'): Plugin {
-  let filePath = '';
-  // O arquivo só é aberto quando um servidor sobe (não ao carregar a config, ex.: no vitest).
-  let api: ReturnType<typeof createApi> | undefined;
-  const handler: Connect.NextHandleFunction = (req, res, next) => (api ??= createApi(filePath)).handler(req, res, next);
-  return {
-    name: 'mermaid-draw-api',
-    configResolved(config) {
-      filePath = path.resolve(config.root, file);
-    },
-    configureServer(server) {
-      server.middlewares.use('/api', handler);
-    },
-    configurePreviewServer(server) {
-      server.middlewares.use('/api', handler);
-    },
-  };
 }

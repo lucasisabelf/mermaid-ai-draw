@@ -13,6 +13,12 @@ const NODE_H_OWNER = 58;
 const NODE_MIN_W = 120;
 const NODE_PAD = 20;
 const RADIUS = 12;
+/** Duração da "mensagem" percorrendo a seta num pulso. */
+const MESSAGE_MS = 650;
+/** Intervalo entre mensagens seguidas na mesma seta. */
+const MESSAGE_GAP_MS = 220;
+
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const measureCtx = document.createElement('canvas').getContext('2d')!;
 measureCtx.font = FONT;
@@ -83,7 +89,11 @@ export class Canvas {
   private svg = el('svg', { class: 'canvas-svg' });
   private edgeLayer = el('g');
   private nodeLayer = el('g');
+  /** Mensagens percorrendo as setas e pulsos nos retângulos: fora das camadas que são redesenhadas. */
+  private animLayer = el('g', { class: 'anim' });
   private overlay = el('g', { class: 'overlay' });
+  /** Mensagens ainda a caminho, por seta: a próxima sai um pouco depois, em fila. */
+  private inFlight = new Map<string, number>();
   private drag: Drag | null = null;
   private editor: HTMLInputElement | null = null;
   /** Elementos SVG por id: cada mudança redesenha só o retângulo/seta afetado. */
@@ -106,7 +116,7 @@ export class Canvas {
       const m = el('marker', { id, viewBox: '0 0 10 10', refX: 10, refY: 5, markerWidth: 9, markerHeight: 9, orient: 'auto-start-reverse' }, defs);
       el('path', { d: 'M0 0 L10 5 L0 10 Z', class: cls }, m);
     }
-    this.svg.append(this.edgeLayer, this.nodeLayer, this.overlay);
+    this.svg.append(this.edgeLayer, this.nodeLayer, this.animLayer, this.overlay);
     host.append(this.svg);
 
     this.svg.addEventListener('pointerdown', this.onDown);
@@ -354,7 +364,9 @@ export class Canvas {
     const height = Math.ceil(y1 + pad) - y;
 
     const clone = this.svg.cloneNode(true) as SVGSVGElement;
-    clone.querySelectorAll('.handle, .status, .node-halo, .add-owner, .edge-hit, .owner-hit, .overlay, title').forEach((e) => e.remove());
+    clone.querySelectorAll('.handle, .status, .node-halo, .add-owner, .edge-hit, .owner-hit, .overlay, .anim, title').forEach((e) => e.remove());
+    // A animação não vai para o arquivo: a seta animada sai como uma seta comum.
+    clone.querySelectorAll('.edge.animated').forEach((e) => e.classList.remove('animated'));
     clone.querySelectorAll('.selected').forEach((e) => e.classList.remove('selected'));
     clone.querySelectorAll('.edge-line').forEach((e) => e.setAttribute('marker-end', 'url(#arrow)'));
     clone.removeAttribute('class');
@@ -456,12 +468,12 @@ export class Canvas {
     const e = this.store.edge(id);
     const a = e && this.store.node(e.from);
     const b = e && this.store.node(e.to);
-    this.swap(this.edgeEls, this.edgeLayer, id, e && a && b ? this.buildEdge(e.id, e.text, a, b) : null);
+    this.swap(this.edgeEls, this.edgeLayer, id, e && a && b ? this.buildEdge(e.id, e.text, a, b, Boolean(e.animated)) : null);
   }
 
-  private buildEdge(id: string, text: string, a: DiagramNode, b: DiagramNode) {
+  private buildEdge(id: string, text: string, a: DiagramNode, b: DiagramNode, animated: boolean) {
     const selected = this.isSelected('edge', id);
-    const g = el('g', { class: `edge${selected ? ' selected' : ''}`, 'data-edge': id });
+    const g = el('g', { class: `edge${selected ? ' selected' : ''}${animated ? ' animated' : ''}`, 'data-edge': id });
     const { d, label } = edgeGeometry(a, b);
     el('path', { d, class: 'edge-hit' }, g);
     el('path', { d, class: 'edge-line', 'marker-end': `url(#${selected ? 'arrow-sel' : 'arrow'})` }, g);
@@ -507,6 +519,61 @@ export class Canvas {
     el('circle', { cx: 11, cy: h / 2, r: 9, class: 'status-hit' }, toggle);
     el('circle', { cx: 11, cy: h / 2, r: 4, class: 'status-dot' }, toggle);
     return g;
+  }
+
+  // ---- pulso: uma mensagem percorrendo a seta ---------------------------
+
+  /**
+   * Uma "mensagem" sai da origem e percorre a seta até o destino, que dá um pulso ao recebê-la.
+   * `label`, se houver, viaja junto com a mensagem. Pulsos seguidos na mesma seta saem em fila.
+   */
+  pulseEdge(id: string, label = '') {
+    const e = this.store.edge(id);
+    const g = this.edgeEls.get(id);
+    const line = g?.querySelector<SVGPathElement>('.edge-line');
+    if (!e || !g || !line) return;
+    g.classList.remove('flash');
+    void g.getBoundingClientRect(); // reinicia a animação do rótulo
+    g.classList.add('flash');
+    window.setTimeout(() => this.edgeEls.get(id)?.classList.remove('flash'), 1400);
+
+    if (reducedMotion()) return this.pulseNode(e.to);
+    const queued = this.inFlight.get(id) ?? 0;
+    this.inFlight.set(id, queued + 1);
+    // Trilha própria: a seta pode ser redesenhada no meio do caminho sem interromper a mensagem.
+    const track = el('path', { d: line.getAttribute('d')!, class: 'msg-track' }, this.animLayer);
+    const dot = el('circle', { r: 5, class: 'msg-dot', opacity: 0 }, this.animLayer);
+    const tag = label ? el('text', { class: 'msg-label', opacity: 0 }, this.animLayer) : null;
+    if (tag) tag.textContent = label;
+    const length = track.getTotalLength();
+    const begin = performance.now() + queued * MESSAGE_GAP_MS;
+    const step = (now: number) => {
+      const t = Math.min(1, Math.max(0, (now - begin) / MESSAGE_MS));
+      const p = track.getPointAtLength(length * (1 - (1 - t) ** 2));
+      const visible = now < begin ? '0' : '1';
+      dot.setAttribute('cx', String(p.x));
+      dot.setAttribute('cy', String(p.y));
+      dot.setAttribute('opacity', visible);
+      tag?.setAttribute('x', String(p.x));
+      tag?.setAttribute('y', String(p.y - 12));
+      tag?.setAttribute('opacity', visible);
+      if (t < 1) return void requestAnimationFrame(step);
+      track.remove();
+      dot.remove();
+      tag?.remove();
+      this.inFlight.set(id, (this.inFlight.get(id) ?? 1) - 1);
+      this.pulseNode(e.to);
+    };
+    requestAnimationFrame(step);
+  }
+
+  private pulseNode(id: string) {
+    const n = this.store.node(id);
+    if (!n) return;
+    const { w, h } = nodeSize(n);
+    const ring = el('rect', { x: n.x - w / 2, y: n.y - h / 2, width: w, height: h, rx: RADIUS, class: 'pulse-ring' }, this.animLayer);
+    ring.addEventListener('animationend', () => ring.remove());
+    window.setTimeout(() => ring.remove(), 1200);
   }
 
   private renderOverlay() {

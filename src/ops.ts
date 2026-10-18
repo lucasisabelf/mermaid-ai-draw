@@ -8,9 +8,9 @@ import { cleanOwner, freeSlot, ID_RE, nextId, OWNER_MAX, type Diagram, type Diag
 
 /** `owner` vazio ou `null` remove o responsável. */
 export type NodePatch = Partial<Pick<DiagramNode, 'text' | 'x' | 'y' | 'active'>> & { owner?: string | null };
-export type EdgePatch = Partial<Pick<DiagramEdge, 'text' | 'from' | 'to'>>;
+export type EdgePatch = Partial<Pick<DiagramEdge, 'text' | 'from' | 'to' | 'animated'>>;
 export type NewNode = NodePatch & { id?: string };
-export type NewEdge = { id?: string; from: string; to: string; text?: string };
+export type NewEdge = { id?: string; from: string; to: string; text?: string; animated?: boolean };
 
 export type DiagramEvent =
   | { type: 'node.added' | 'node.updated'; node: DiagramNode }
@@ -29,7 +29,11 @@ export class OpError extends Error {
 }
 
 const NODE_FIELDS = ['text', 'x', 'y', 'active', 'owner'];
-const EDGE_FIELDS = ['text', 'from', 'to'];
+const EDGE_FIELDS = ['text', 'from', 'to', 'animated'];
+
+function checkAnimated(v: unknown) {
+  if (v !== undefined && typeof v !== 'boolean') throw new OpError(400, '"animated" deve ser true ou false.');
+}
 
 function checkFields(input: object, allowed: string[]) {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new OpError(400, 'O corpo deve ser um objeto JSON.');
@@ -142,6 +146,7 @@ export function addEdge(d: Diagram, input: NewEdge): DiagramEvent {
   checkFields(rest, EDGE_FIELDS);
   checkNewId(id, d.edges);
   if (rest.text !== undefined && typeof rest.text !== 'string') throw new OpError(400, '"text" deve ser um texto.');
+  checkAnimated(rest.animated);
   checkEdgeEnds(d, rest.from, rest.to);
   const edge: DiagramEdge = {
     id: id ?? nextId('e', d.edges.map((e) => e.id)),
@@ -149,6 +154,7 @@ export function addEdge(d: Diagram, input: NewEdge): DiagramEvent {
     to: rest.to,
     text: rest.text?.trim() ?? '',
   };
+  if (rest.animated) edge.animated = true;
   d.edges.push(edge);
   return { type: 'edge.added', edge };
 }
@@ -157,12 +163,17 @@ export function updateEdge(d: Diagram, id: string, patch: EdgePatch): DiagramEve
   checkFields(patch, EDGE_FIELDS);
   const e = getEdge(d, id);
   if (patch.text !== undefined && typeof patch.text !== 'string') throw new OpError(400, '"text" deve ser um texto.');
+  checkAnimated(patch.animated);
   const from = patch.from ?? e.from;
   const to = patch.to ?? e.to;
   if (from !== e.from || to !== e.to) checkEdgeEnds(d, from, to, e.id);
   e.from = from;
   e.to = to;
   if (patch.text !== undefined) e.text = patch.text.trim();
+  if (patch.animated !== undefined) {
+    if (patch.animated) e.animated = true;
+    else delete e.animated;
+  }
   return { type: 'edge.updated', edge: e };
 }
 

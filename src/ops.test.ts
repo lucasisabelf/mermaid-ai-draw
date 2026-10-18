@@ -166,6 +166,26 @@ describe('Mermaid', () => {
     expect(both.diagram.nodes[0]).toMatchObject({ text: 'A', owner: 'Bia' });
   });
 
+  it('seta animada vai e volta com a sintaxe de animação do Mermaid', () => {
+    const d = sample();
+    ops.updateEdge(d, 'e1', { animated: true });
+    const code = toMermaid(d);
+    expect(code).toContain('n1 e1@-->|"processa"| n2');
+    expect(code).toContain('e1@{ animate: true }');
+    expect(code).toContain('    n2 --> n3');
+    const { diagram, errors } = parseMermaid(code);
+    expect(errors).toEqual([]);
+    expect(diagram.edges).toEqual(d.edges);
+    ops.updateEdge(d, 'e1', { animated: false });
+    expect(d.edges[0]).not.toHaveProperty('animated');
+    expect(statusOf(() => ops.updateEdge(d, 'e1', { animated: 'sim' as never }))).toBe(400);
+  });
+
+  it('o id escrito no código (e9@-->) vale para a seta', () => {
+    const { diagram } = parseMermaid('flowchart LR\n    a("A")\n    b("B")\n    a meu-id@--> b\n    meu-id@{ animate: true }');
+    expect(diagram.edges).toEqual([{ id: 'meu-id', from: 'a', to: 'b', text: '', animated: true }]);
+  });
+
   it('ler o código mantém os ids das setas que já existiam', () => {
     const d = sample();
     d.edges[0].id = 'eabc';

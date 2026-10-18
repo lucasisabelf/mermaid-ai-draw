@@ -15,6 +15,8 @@ export interface DiagramEdge {
   from: string;
   to: string;
   text: string;
+  /** Seta animada: o tracejado corre de origem para destino (sintaxe `e1@{ animate: true }` do Mermaid). */
+  animated?: boolean;
 }
 
 export interface Diagram {
@@ -31,7 +33,9 @@ const ID = '[A-Za-z_][\\w-]*';
 export const ID_RE = new RegExp(`^${ID}$`);
 const HEADER_RE = /^(flowchart|graph)(\s+(TB|TD|BT|LR|RL))?$/;
 const NODE_RE = new RegExp(`^(${ID})\\((?:"([^"]*)"|([^()"]*))\\)$`);
-const EDGE_RE = new RegExp(`^(${ID})\\s*-->\\s*(?:\\|(?:"([^"]*)"|([^|"]*))\\|\\s*)?(${ID})$`);
+// `n1 e1@--> n2`: o id antes de `@` é o id da seta (Mermaid 11+), usado para animá-la.
+const EDGE_RE = new RegExp(`^(${ID})(?:\\s+(${ID})@|\\s*)-->\\s*(?:\\|(?:"([^"]*)"|([^|"]*))\\|\\s*)?(${ID})$`);
+const ANIMATE_RE = new RegExp(`^(${ID})@\\{\\s*animate\\s*:\\s*true\\s*\\}$`);
 const CLASS_RE = new RegExp(`^class\\s+(${ID}(?:\\s*,\\s*${ID})*)\\s+(${ID})$`);
 const OWNER_RE = new RegExp(`^%%\\s*@owner\\s+(${ID})\\s+(.+)$`);
 const POS_RE = new RegExp(`^%%\\s*@pos\\s+(${ID})\\s+(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)$`);
@@ -62,8 +66,10 @@ export function toMermaid(d: Diagram): string {
   const lines = ['flowchart LR'];
   for (const n of d.nodes) lines.push(`    ${n.id}("${labelOf(n)}")`);
   for (const e of d.edges) {
-    lines.push(e.text ? `    ${e.from} -->|"${escape(e.text)}"| ${e.to}` : `    ${e.from} --> ${e.to}`);
+    const arrow = e.animated ? `${e.id}@-->` : '-->';
+    lines.push(e.text ? `    ${e.from} ${arrow}|"${escape(e.text)}"| ${e.to}` : `    ${e.from} ${arrow} ${e.to}`);
   }
+  for (const e of d.edges) if (e.animated) lines.push(`    ${e.id}@{ animate: true }`);
   const active = d.nodes.filter((n) => n.active).map((n) => n.id);
   if (active.length) {
     lines.push(`    classDef ${ACTIVE_CLASS} stroke:${ACTIVE_COLOR},stroke-width:3px`);
@@ -84,6 +90,7 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
   const edges: DiagramEdge[] = [];
   const positions = new Map<string, { x: number; y: number }>();
   const activeIds = new Set<string>();
+  const animatedIds = new Set<string>();
   const owners = new Map<string, string>();
 
   const ensureNode = (id: string) => {
@@ -112,6 +119,12 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
     }
     if (line.startsWith('%%') || line.startsWith('classDef ') || HEADER_RE.test(line)) return;
 
+    const anim = ANIMATE_RE.exec(line);
+    if (anim) {
+      animatedIds.add(anim[1]);
+      return;
+    }
+
     const cls = CLASS_RE.exec(line);
     if (cls) {
       if (cls[2] === ACTIVE_CLASS) for (const id of cls[1].split(',')) activeIds.add(id.trim());
@@ -129,10 +142,12 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
 
     const edge = EDGE_RE.exec(line);
     if (edge) {
-      const [, from, quoted, plain, to] = edge;
+      const [, from, edgeId, quoted, plain, to] = edge;
       ensureNode(from);
       ensureNode(to);
-      edges.push({ id: '', from, to, text: unescape(quoted ?? plain ?? '').trim() });
+      // O id escrito no código (`e1@-->`) vale, se não repetir o de outra seta.
+      const id = edgeId && !edges.some((e) => e.id === edgeId) ? edgeId : '';
+      edges.push({ id, from, to, text: unescape(quoted ?? plain ?? '').trim() });
       return;
     }
 
@@ -168,12 +183,14 @@ export function parseMermaid(code: string, previous?: Diagram): ParseResult {
 
   // O Mermaid não guarda id de seta: reaproveita o id da seta equivalente (mesma origem e destino)
   // do diagrama anterior, para que editar o código não troque o id das setas que já existiam.
-  const unused = [...(previous?.edges ?? [])];
+  const unused = [...(previous?.edges ?? [])].filter((p) => !edges.some((e) => e.id === p.id));
   for (const e of edges) {
+    if (e.id) continue;
     const i = unused.findIndex((p) => p.from === e.from && p.to === e.to);
     if (i >= 0) e.id = unused.splice(i, 1)[0].id;
   }
   for (const e of edges) if (!e.id) e.id = nextId('e', edges.map((x) => x.id));
+  for (const e of edges) if (animatedIds.has(e.id)) e.animated = true;
 
   return { diagram: { nodes: [...nodes.values()], edges }, errors };
 }

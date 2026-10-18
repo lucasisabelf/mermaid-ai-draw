@@ -7,7 +7,10 @@
   </head>
   <body>
     <header class="topbar">
-      <h1>mermaid-draw</h1>
+      <div class="brand">
+        <button id="btn-menu" type="button" class="menu-btn" aria-label="Diagramas" aria-controls="menu" title="Diagramas">☰</button>
+        <h1><span id="diagram-name"></span><small>mermaid-draw</small></h1>
+      </div>
       <div class="actions">
         <button id="btn-svg" type="button" title="Baixa o desenho do canvas como SVG">Exportar SVG</button>
         <button id="btn-png" type="button" title="Baixa o desenho do canvas como PNG">Exportar PNG</button>
@@ -41,6 +44,20 @@
         </div>
       </aside>
     </main>
+    <div id="menu-backdrop" class="menu-backdrop" hidden></div>
+    <aside id="menu" class="menu" hidden aria-label="Diagramas">
+      <div class="menu-head">
+        <div class="panel-title">Diagramas</div>
+        <button id="menu-close" type="button" class="icon" title="Fechar (Esc)">✕</button>
+      </div>
+      <input id="menu-search" class="menu-search" type="search" placeholder="Buscar diagrama…" spellcheck="false" />
+      <div class="menu-tools">
+        <button id="menu-new" type="button" class="primary">+ Novo</button>
+        <button id="menu-import" type="button" title="Importa um .zip exportado por este menu ou um .mmd">Importar</button>
+        <input id="menu-file" type="file" accept=".zip,.mmd,application/zip,text/plain" hidden />
+      </div>
+      <ul id="menu-list" class="menu-list"></ul>
+    </aside>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
