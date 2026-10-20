@@ -111,6 +111,8 @@ Importe pelo menu ☰ → **Importar**:
 - [`examples/debate-cafeteria.zip`](examples/debate-cafeteria.zip): Otimista → Cética → Moderadora → Otimista, para debater e responder.
 - [`examples/tarefa-lancamento.zip`](examples/tarefa-lancamento.zip): a Orquestradora delega para Pesquisadora, Redatora e Revisora, e a Redatora também passa para a Revisora.
 - [`examples/debate-misto.zip`](examples/debate-misto.zip): os três motores no mesmo debate (Otimista no Ollama, Cética na API e Moderadora no MCP). Sem o Ollama ou sem a chave, a persona daquele motor aparece como erro no chat, e as outras continuam.
+- [`examples/debate-times-mcp.zip`](examples/debate-times-mcp.zip): debate estruturado Time A vs Time B. A Moderadora abre, os dois times defendem as suas posições e fazem réplicas cruzadas, e a Moderadora fecha com a síntese. Tudo no MCP (`claude-opus-5-5`).
+- [`examples/debate-times-ollama.zip`](examples/debate-times-ollama.zip): o mesmo debate, 100% local no Ollama (`qwen2.5:3b`).
 
 Os `.zip` levam as personas junto.
 
