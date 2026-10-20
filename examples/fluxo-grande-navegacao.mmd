@@ -1,0 +1,50 @@
+flowchart LR
+    n1("Cliente faz o pedido")
+    n2("Valida o carrinho")
+    n3("Calcula o frete")
+    n4("Reserva o estoque")
+    n5("Cobra no cartão")
+    n6("Pagamento recusado")
+    n7("Avisa o cliente")
+    n8("Emite a nota fiscal")
+    n9("Separa os itens")
+    n10("Embala")
+    n11("Gera a etiqueta")
+    n12("Coleta da transportadora")
+    n13("Em trânsito")
+    n14("Entregue")
+    n15("Pesquisa de satisfação")
+    n16("Fecha o pedido")
+    n1 --> n2
+    n2 --> n3
+    n3 --> n4
+    n4 --> n5
+    n5 -->|"recusado"| n6
+    n6 --> n7
+    n5 -->|"aprovado"| n8
+    n8 --> n9
+    n9 --> n10
+    n10 --> n11
+    n11 --> n12
+    n12 --> n13
+    n13 --> n14
+    n14 --> n15
+    n14 --> n16
+    n15 --> n16
+
+%% @pos n1 120 120
+%% @pos n2 400 120
+%% @pos n3 680 120
+%% @pos n4 960 120
+%% @pos n5 1240 120
+%% @pos n6 1240 380
+%% @pos n7 1520 380
+%% @pos n8 1520 120
+%% @pos n9 1800 120
+%% @pos n10 2080 120
+%% @pos n11 2360 120
+%% @pos n12 2360 380
+%% @pos n13 2080 380
+%% @pos n14 1800 640
+%% @pos n15 2080 640
+%% @pos n16 2360 640

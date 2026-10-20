@@ -84,7 +84,11 @@ Abra o endereço que o Vite mostrar (normalmente http://localhost:5173; se a por
 | Animar uma seta | Selecione a seta e aperte `M`. O tracejado passa a correr de origem para destino, no canvas e no preview |
 | Mandar uma mensagem pela seta | Selecione a seta e aperte `P`: uma mensagem percorre a seta e o destino dá um pulso, em todas as abas abertas |
 | Trocar de diagrama | Botão **☰** ao lado do título (veja [Vários diagramas](#vários-diagramas)) |
-| Exportar | "Exportar SVG" ou "Exportar PNG" na barra de cima |
+| Selecionar ou mover a vista | Barra no canto do canvas: 🖱 **selecionar** (`V`) clica e arrasta retângulos; ✋ **mão** (`H`, ou segure `Espaço`) arrasta a vista sem mexer no desenho. Arrastar o fundo vazio ou usar o botão do meio do mouse também move a vista |
+| Zoom | **−/100%/+** na barra (`−`/`+`; clicar no % volta a 100%), ou **Ctrl+roda** no ponto do cursor. A roda sozinha rola a vista |
+| Ver o fluxo inteiro | ⛶ na barra ou `F`. Um diagrama que não cabe na tela já abre enquadrado. Para experimentar, importe [`examples/fluxo-grande-navegacao.mmd`](examples/fluxo-grande-navegacao.mmd) pelo menu ☰ |
+| Zoom no selecionado | 🔍 na barra ou `Z`: centraliza e amplia o retângulo selecionado (ou as duas pontas da seta selecionada) |
+| Exportar | "Exportar SVG" ou "Exportar PNG" na barra de cima. Sai sempre o desenho inteiro, com qualquer zoom |
 
 O painel da direita mostra o código Mermaid, que pode ser editado, e um preview renderizado pelo próprio Mermaid. O preview usa o layout automático do Mermaid, não as posições do canvas. Editar o código é a única ação que troca o diagrama inteiro de uma vez.
 

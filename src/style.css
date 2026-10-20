@@ -190,6 +190,85 @@ button:disabled {
   touch-action: none;
 }
 
+/* Mão: arrastar move a vista (ferramenta, Espaço, botão do meio ou fundo vazio). */
+.canvas-svg.tool-pan,
+.canvas-svg.tool-pan .node,
+.canvas-svg.tool-pan .edge,
+.canvas-svg.tool-pan [data-play],
+.canvas-svg.tool-pan [data-toggle],
+.canvas-svg.tool-pan .handle {
+  cursor: grab;
+}
+
+.canvas-svg.dragging-view,
+.canvas-svg.dragging-view * {
+  cursor: grabbing !important;
+}
+
+.canvas-tools {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  pointer-events: none;
+}
+
+.ct-group {
+  display: flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+  pointer-events: auto;
+}
+
+.ct-group button {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-group button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.ct-group button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ct-group button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ct-group svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ct-zoom {
+  min-width: 48px !important;
+}
+
 .canvas-svg.mode-arrow .node {
   cursor: crosshair;
 }

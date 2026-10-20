@@ -1,6 +1,6 @@
 import mermaid from 'mermaid';
 import './style.css';
-import { Canvas, DND_TYPE } from './canvas';
+import { Canvas, DND_TYPE, type Tool } from './canvas';
 import { DIAGRAM } from './diagrams';
 import { downloadPng, downloadSvg } from './export';
 import { DiagramMenu } from './menu';
@@ -38,6 +38,24 @@ function loadInitial(): Diagram {
 
 const store = new Store(loadInitial());
 const canvas = new Canvas($('#canvas'), store);
+
+// ---- barra do canvas: selecionar/mão, zoom, ver tudo e zoom no selecionado ----
+
+const toolButtons = document.querySelectorAll<HTMLButtonElement>('[data-canvas-tool]');
+const zoomLabel = $('#ct-zoom-reset');
+const focusButton = $<HTMLButtonElement>('#ct-focus');
+canvas.onView = () => {
+  for (const b of toolButtons) b.setAttribute('aria-pressed', String(b.dataset.canvasTool === canvas.tool));
+  zoomLabel.textContent = `${Math.round(canvas.zoom * 100)}%`;
+  focusButton.disabled = !canvas.hasSelection;
+};
+for (const b of toolButtons) b.addEventListener('click', () => canvas.setTool(b.dataset.canvasTool as Tool));
+$('#ct-zoom-out').addEventListener('click', () => canvas.zoomBy(1 / 1.25));
+$('#ct-zoom-in').addEventListener('click', () => canvas.zoomBy(1.25));
+zoomLabel.addEventListener('click', () => canvas.resetZoom());
+$('#ct-fit').addEventListener('click', () => canvas.fitAll());
+focusButton.addEventListener('click', () => canvas.zoomToSelection());
+canvas.onView();
 
 mermaid.initialize({
   startOnLoad: false,
@@ -79,7 +97,7 @@ function updateHint() {
       ? 'Modo seta: arraste de um retângulo até outro. Esc volta ao modo seleção.'
       : store.selection?.kind === 'edge'
         ? 'Seta selecionada: M liga/desliga a animação, P manda uma mensagem por ela, duplo clique edita o texto, Delete remove.'
-        : 'Arraste os componentes para o canvas. Duplo clique edita o texto. A bolinha à esquerda (ou a tecla A) ativa/inativa. R define quem cuida da etapa. Delete remove.';
+        : 'Arraste os componentes para o canvas. Duplo clique edita o texto. A bolinha à esquerda (ou a tecla A) ativa/inativa. R define quem cuida da etapa. Delete remove. Arraste o fundo (ou segure Espaço) para mover a vista; Ctrl+roda dá zoom, F mostra tudo e Z dá zoom no selecionado.';
   document.querySelector('[data-tool="arrow"]')!.classList.toggle('active', store.mode === 'arrow');
 }
 
@@ -169,6 +187,14 @@ document.addEventListener('keydown', (e) => {
   } else if (e.key.toLowerCase() === 'r' && store.selection?.kind === 'node' && !e.ctrlKey && !e.metaKey && !e.altKey) {
     e.preventDefault(); // senão a letra cairia no campo que acabou de abrir
     canvas.edit('owner', store.selection.id);
+  } else if (!e.ctrlKey && !e.metaKey && !e.altKey && ['v', 'h', 'f', 'z', '+', '=', '-'].includes(e.key.toLowerCase())) {
+    // Câmera: V seleciona, H mão, F ver tudo, Z zoom no selecionado, + e − zoom.
+    const k = e.key.toLowerCase();
+    if (k === 'v') canvas.setTool('select');
+    else if (k === 'h') canvas.setTool('pan');
+    else if (k === 'f') canvas.fitAll();
+    else if (k === 'z') canvas.zoomToSelection();
+    else canvas.zoomBy(k === '-' ? 1 / 1.25 : 1.25);
   } else if (e.key === 'Escape') {
     if (canvas.connecting) canvas.cancel();
     else if (store.mode === 'arrow') store.setMode('select');
