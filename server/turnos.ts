@@ -52,6 +52,13 @@ export function delegaveis(d: Diagram, id: string): string[] {
   return [...new Set(outras(d).filter((e) => e.from === id).map((e) => e.to))];
 }
 
+/** O desenho sem os retângulos `ids` e sem as setas deles (as personas de saída ficam fora das rodadas). */
+export function semNos(d: Diagram, ids: string[]): Diagram {
+  if (!ids.length) return d;
+  const fora = new Set(ids);
+  return { ...d, nodes: d.nodes.filter((n) => !fora.has(n.id)), edges: d.edges.filter((e) => !fora.has(e.from) && !fora.has(e.to)) };
+}
+
 /** Ids das setas de `de` para `para` (para a "mensagem" percorrer no canvas). */
 export function arestas(d: Diagram, de: string[], para: string): string[] {
   return d.edges.filter((e) => e.to === para && de.includes(e.from)).map((e) => e.id);

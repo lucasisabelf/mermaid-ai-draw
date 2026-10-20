@@ -3,7 +3,7 @@
  * chat.mensagem, chat.fim) ou de uma conversa salva. Funções puras: o painel só desenha o resultado.
  */
 
-export type TipoMensagem = 'usuario' | 'fala' | 'sintese' | 'tarefa' | 'resultado' | 'erro' | 'sistema';
+export type TipoMensagem = 'usuario' | 'fala' | 'sintese' | 'tarefa' | 'resultado' | 'saida' | 'erro' | 'sistema';
 
 export interface MensagemView {
   id: string;
@@ -17,6 +17,8 @@ export interface MensagemView {
   modelo?: string;
   pai?: string;
   respondendoA?: string[];
+  /** Na saída: o .md gerado, para baixar. */
+  arquivo?: string;
   uso?: { entrada?: number; saida?: number; custo?: number; tokensPorSegundo?: number };
 }
 
@@ -76,6 +78,14 @@ export function aplicar(s: ChatState, ev: any): ChatState {
   }
   return s;
 }
+
+/** Os .md que as personas de saída geraram nesta conversa. */
+export function saidasDe(s: ChatState) {
+  return s.mensagens.filter((m) => m.tipo === 'saida' && m.arquivo).map((m) => ({ id: m.id, nome: m.nome, arquivo: m.arquivo!, texto: m.texto }));
+}
+
+/** Onde baixar o .md gerado. */
+export const urlDaSaida = (api: string, conversa: string, arquivo: string) => `${api}/conversas/${encodeURIComponent(conversa)}/saidas/${encodeURIComponent(arquivo)}`;
 
 const normalizar = (t: string) =>
   t

@@ -6,7 +6,7 @@ import type { Diagram } from '../src/model.ts';
 import type { Pedido, createConversas } from './conversa.ts';
 import type { MotorMcp } from './motores/mcp.ts';
 import type { Persona } from './personas.ts';
-import { ordemDaRodada } from './turnos.ts';
+import { ordemDaRodada, semNos } from './turnos.ts';
 
 /**
  * O servidor MCP em /mcp: é por ele que o Claude Code (ou outro cliente MCP) dá voz às personas de
@@ -38,6 +38,7 @@ const COMO: Record<Pedido['tipo'], string> = {
     'Decida como fazer a tarefa. Para delegar, chame responder com `delegacoes: [{para, tarefa}]` (só para as delegáveis) e um texto curto com o plano; as delegadas viram novos turnos (em paralelo: dá para usar um subagente por turno) e depois vem um turno "consolidar". Se fizer sozinha, responda com o resultado direto, sem delegações.',
   execucao: 'Faça a tarefa delegada e chame responder(turno, texto) com o resultado completo.',
   consolidar: 'Junte os resultados do contexto numa entrega final única e chame responder(turno, texto).',
+  saida: 'Preencha o template de saída do contexto com o resultado da conversa (mantenha os títulos) e chame responder(turno, texto) só com o markdown preenchido.',
 };
 
 function turnoParaCliente(p: Pedido) {
@@ -74,7 +75,7 @@ function servidor(deps: DepsMcp) {
       const { diagrama: d, personas } = deps.abrir(diagrama);
       const nome = (id: string) => d.nodes.find((n) => n.id === id)?.text ?? id;
       return json({
-        personas: personas.map((p) => ({ id: p.id, nome: p.nome, motor: p.motor, modelo: p.modelo, papel: p.papel, inicio: p.inicio })),
+        personas: personas.map((p) => ({ id: p.id, nome: p.nome, motor: p.motor, modelo: p.modelo, papel: p.papel, inicio: p.inicio, saida: p.saida, arquivo: p.saida ? p.arquivo : undefined })),
         setas: d.edges.filter((e) => e.from !== e.to).map((e) => `${nome(e.from)} → ${nome(e.to)}`),
       });
     }),
@@ -96,7 +97,14 @@ function servidor(deps: DepsMcp) {
       const { diagrama: d, personas, conversas } = deps.abrir(diagrama);
       const c = conversas.iniciar({ assunto, modo, rodadas });
       const inicios = personas.filter((p) => p.inicio).map((p) => p.id);
-      return json({ conversa: c.id, modo: c.modo, rodadas: c.rodadas, ordem: ordemDaRodada(d, inicios).map((id) => d.nodes.find((n) => n.id === id)!.text) });
+      const rodada = semNos(d, personas.filter((p) => p.saida).map((p) => p.id));
+      return json({
+        conversa: c.id,
+        modo: c.modo,
+        rodadas: c.rodadas,
+        ordem: ordemDaRodada(rodada, inicios).map((id) => d.nodes.find((n) => n.id === id)!.text),
+        saidas: personas.filter((p) => p.saida).map((p) => `${p.nome} → ${p.arquivo}`),
+      });
     }),
   );
 

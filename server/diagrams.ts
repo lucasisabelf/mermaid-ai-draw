@@ -12,7 +12,7 @@ import { criarHandlerMcp } from './mcp.ts';
 import { criarMotorApi, MODELOS_API } from './motores/api.ts';
 import { criarMotorMcp } from './motores/mcp.ts';
 import { criarMotorOllama } from './motores/ollama.ts';
-import { carregarTemplates, MOTORES, personaDoTemplate, PersonaStore, type MotorNome } from './personas.ts';
+import { ARQUIVO_RE, carregarTemplates, MOTORES, personaDoTemplate, PersonaStore, type MotorNome } from './personas.ts';
 
 /**
  * Vários diagramas, um por pasta, cada um com a própria API (a de api.ts):
@@ -39,11 +39,14 @@ import { carregarTemplates, MOTORES, personaDoTemplate, PersonaStore, type Motor
  *   GET    /api/d/:slug/personas                  as personas dos retângulos
  *   GET    /api/d/:slug/personas/:id              {markdown, persona}
  *   PUT    /api/d/:slug/personas/:id              grava o .md (corpo em texto); 400 se inválido
+ *   GET    /api/d/:slug/personas/:id/saida        {template, arquivo, padrao}: o template da persona de saída
+ *   PUT    /api/d/:slug/personas/:id/saida        grava só o template (corpo em texto)
  *   POST   /api/d/:slug/conversas                 começa {assunto, modo?, rodadas?}
  *   GET    /api/d/:slug/conversas[/:id]           lista / uma conversa
  *   POST   /api/d/:slug/conversas/:id/mensagens   o usuário fala no chat {texto} (@persona chama alguém)
  *   POST   /api/d/:slug/conversas/:id/sintetizar  pede a resposta polida
  *   POST   /api/d/:slug/conversas/:id/parar
+ *   GET    /api/d/:slug/conversas/:id/saidas/:arquivo   baixa o .md que a persona de saída gerou
  *   /mcp                                          servidor MCP (o Claude Code dá voz às personas "mcp")
  *
  * As rotas antigas sem prefixo (/api/nodes, /api/diagram…) continuam valendo para o primeiro diagrama.
@@ -70,6 +73,8 @@ export interface DiagramItem {
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 /** Persona dentro de um .zip exportado: personas/<id>.md (o id é validado antes de virar arquivo). */
 const PERSONA_ZIP_RE = /^(?:[^/]+\/)?personas\/([A-Za-z][\w-]*)\.md$/;
+/** O template de saída dentro do .zip: personas/<id>.saida.md. */
+const TEMPLATE_ZIP_RE = /^(?:[^/]+\/)?personas\/([A-Za-z][\w-]*)\.saida\.md$/;
 
 /** Nome da pasta: minúsculas, sem acento, palavras separadas por hífen. */
 export function slugify(name: string): string {
@@ -184,6 +189,12 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
         persona: (id, nome) => personas.ler(id, nome),
         motores,
         emitir: (ev) => a.broadcast({ ...ev, source: 'server' }),
+        template: (id) => personas.lerTemplate(id),
+        gravarSaida: (conversa, arquivo, texto) => {
+          const pasta = path.join(folder(slug), 'saidas', conversa);
+          fs.mkdirSync(pasta, { recursive: true });
+          fs.writeFileSync(path.join(pasta, arquivo), `${texto}\n`);
+        },
       });
       ais.set(slug, (x = { personas, conversas }));
     }
@@ -276,6 +287,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     const origem = personasDe(de);
     const destino = personasDe(para);
     for (const id of origem.ids()) destino.gravarMd(id, origem.lerMd(id, id));
+    for (const id of origem.idsComTemplate()) destino.gravarTemplate(id, origem.lerTemplate(id));
   };
   const duplicate = (slug: string) => {
     const item = create(`${readMeta(slug).name} (cópia)`, current(slug));
@@ -293,6 +305,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
         'diagram.json': strToU8(`${JSON.stringify({ rev: 0, diagram: d }, null, 2)}\n`),
         'diagram.mmd': strToU8(`${toMermaid(d)}\n`),
         ...Object.fromEntries(personasDe(slug).ids().map((id) => [`personas/${id}.md`, strToU8(personasDe(slug).lerMd(id, id))])),
+        ...Object.fromEntries(personasDe(slug).idsComTemplate().map((id) => [`personas/${id}.saida.md`, strToU8(personasDe(slug).lerTemplate(id))])),
       }),
     };
   };
@@ -311,7 +324,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     try {
       // Só os arquivos que interessam são descompactados: nada do zip é gravado com o nome que traz.
       files = unzipSync(new Uint8Array(data), {
-        filter: (f) => ([META, 'diagram.json', 'diagram.mmd'].includes(path.posix.basename(f.name)) || PERSONA_ZIP_RE.test(f.name)) && f.originalSize <= MAX_IMPORT,
+        filter: (f) => ([META, 'diagram.json', 'diagram.mmd'].includes(path.posix.basename(f.name)) || PERSONA_ZIP_RE.test(f.name) || TEMPLATE_ZIP_RE.test(f.name)) && f.originalSize <= MAX_IMPORT,
       });
     } catch (err) {
       fail(400, `Arquivo não é um .zip válido: ${(err as Error).message}`);
@@ -345,10 +358,11 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     // As personas: só o id validado vira nome de arquivo (nada do caminho do zip é usado).
     const store = personasDe(item.slug);
     for (const [k, v] of Object.entries(files)) {
+      const template = TEMPLATE_ZIP_RE.exec(k)?.[1];
       const id = PERSONA_ZIP_RE.exec(k)?.[1];
-      if (!id) continue;
       try {
-        store.gravarMd(id, strFromU8(v));
+        if (template) store.gravarTemplate(template, strFromU8(v));
+        else if (id) store.gravarMd(id, strFromU8(v));
       } catch {}
     }
     return item;
@@ -520,6 +534,15 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
           return send(res, 200, { persona });
         }
       }
+      // O template da persona de saída: lido e gravado à parte, sem tocar no .md da persona.
+      if (ref && acao === 'saida') {
+        const n = no(ref);
+        if (method === 'GET') return send(res, 200, { template: personas.lerTemplate(n.id), arquivo: personas.ler(n.id, n.text).arquivo, padrao: !personas.temTemplate(n.id) });
+        if (method === 'PUT') {
+          personas.gravarTemplate(n.id, await texto());
+          return send(res, 200, { ok: true });
+        }
+      }
     }
     if (recurso === 'conversas') {
       if (!ref && method === 'GET') return send(res, 200, conversas.listar());
@@ -533,6 +556,17 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
       if (ref && method === 'POST' && acao === 'parar') {
         conversas.parar(ref);
         return send(res, 202, { ok: true });
+      }
+      if (ref && method === 'GET' && acao === 'saidas' && parts[3]) {
+        const arquivo = parts[3];
+        conversas.obter(ref);
+        const caminho = path.join(folder(slug), 'saidas', ref, arquivo);
+        if (!ARQUIVO_RE.test(arquivo) || arquivo.includes('..') || !fs.existsSync(caminho)) fail(404, `A conversa não gerou "${arquivo}".`);
+        res.writeHead(200, {
+          'Content-Type': 'text/markdown; charset=utf-8',
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(arquivo)}`,
+        });
+        return res.end(fs.readFileSync(caminho));
       }
     }
     return send(res, 404, { error: `Rota não encontrada: ${method} /api/d/${slug}/${parts.join('/')}` });

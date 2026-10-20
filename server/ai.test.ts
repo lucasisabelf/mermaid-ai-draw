@@ -136,6 +136,49 @@ describe('personas e templates pela API', () => {
     expect(strFromU8(files[`personas/${id}.md`])).toContain('# ');
   });
 
+  it('persona de saída: template separado, arquivo para baixar no fim, e o zip leva o template', async () => {
+    const { slug, ids } = await montar('Saída', [['otimista', 'ollama'], ['redatora', 'ollama']], ['0>1']);
+    const [a, s] = ids;
+    const md = (await call('GET', `/d/${slug}/personas/${s}`)).json.markdown as string;
+    const put = await call('PUT', `/d/${slug}/personas/${s}`, md.replace('```yaml\n', '```yaml\nsaida: true\narquivo: README.md\n'));
+    expect(put.json.persona).toMatchObject({ saida: true, arquivo: 'README.md' });
+
+    // O template se lê e grava à parte (texto puro), sem mexer no .md da persona.
+    const padrao = await call('GET', `/d/${slug}/personas/${s}/saida`);
+    expect(padrao.status).toBe(200);
+    expect(padrao.json).toMatchObject({ arquivo: 'README.md', padrao: true });
+    expect(padrao.json.template).toContain('#');
+    const antes = fs.readFileSync(path.join(dir, slug, 'personas', `${s}.md`), 'utf8');
+    expect((await call('PUT', `/d/${slug}/personas/${s}/saida`, '# {{nome do app}}\n\n## Visão\n')).status).toBe(200);
+    expect((await call('GET', `/d/${slug}/personas/${s}/saida`)).json).toMatchObject({ template: '# {{nome do app}}\n\n## Visão\n', padrao: false });
+    expect(fs.readFileSync(path.join(dir, slug, 'personas', `${s}.md`), 'utf8')).toBe(antes);
+    expect((await call('PUT', `/d/${slug}/personas/${s}/saida`, '')).status).toBe(400);
+
+    // A conversa: a Otimista fala, a saída roda no fim e o arquivo fica para baixar.
+    const id = (await call('POST', `/d/${slug}/conversas`, { assunto: 'Lançar o app', modo: 'debate', rodadas: 1 })).json.id;
+    for (let i = 0; i < 50 && (await call('GET', `/d/${slug}/conversas/${id}`)).json.status !== 'terminada'; i++) await new Promise((x) => setTimeout(x, 20));
+    const fim = (await call('GET', `/d/${slug}/conversas/${id}`)).json;
+    expect(fim.mensagens.map((m: any) => `${m.nome}:${m.tipo}`)).toEqual(['Você:usuario', 'Otimista:fala', 'Redatora:saida']);
+    const arq = await fetch(`${base}/api/d/${slug}/conversas/${id}/saidas/README.md`);
+    expect(arq.status).toBe(200);
+    expect(arq.headers.get('content-type')).toMatch(/text\/markdown/);
+    expect(arq.headers.get('content-disposition')).toContain('README.md');
+    expect(await arq.text()).toBe('Redatora (ollama)\n');
+    expect(fs.existsSync(path.join(dir, slug, 'saidas', id, 'README.md'))).toBe(true);
+    expect((await call('GET', `/d/${slug}/conversas/${id}/saidas/nada.md`)).status).toBe(404);
+    expect((await call('GET', `/d/${slug}/conversas/${id}/saidas/..%2Fx.md`)).status).toBe(404);
+
+    // Exportar, importar e duplicar levam o template.
+    const zip = await fetch(`${base}/api/diagrams/${slug}/export`).then((x) => x.arrayBuffer());
+    const files = unzipSync(new Uint8Array(zip));
+    expect(strFromU8(files[`personas/${s}.saida.md`])).toBe('# {{nome do app}}\n\n## Visão\n');
+    expect(files[`personas/${a}.saida.md`]).toBeUndefined();
+    const imp = await fetch(`${base}/api/diagrams/import?name=Copia`, { method: 'POST', body: Buffer.from(zip) }).then((x) => x.json());
+    expect(fs.readFileSync(path.join(dir, imp.slug, 'personas', `${s}.saida.md`), 'utf8')).toBe('# {{nome do app}}\n\n## Visão\n');
+    const dup = (await call('POST', `/diagrams/${slug}/duplicate`)).json.slug;
+    expect(fs.existsSync(path.join(dir, dup, 'personas', `${s}.saida.md`))).toBe(true);
+  });
+
   it('mostra o status dos motores', async () => {
     const r = await call('GET', '/motores');
     expect(r.json.map((m: any) => [m.nome, m.ok])).toEqual([

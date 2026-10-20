@@ -92,6 +92,13 @@
           <label class="pp-inicio" title="A rodada começa por ela (num ciclo, é quem abre a conversa). Tecla I com o retângulo selecionado.">
             <input type="checkbox" id="pp-inicio" /> Começa a conversa (bloco de início) <kbd>I</kbd>
           </label>
+          <label class="pp-inicio" title="Não fala nas rodadas: quando todas terminam, ela roda uma vez, preenche o template e gera um .md para baixar no chat.">
+            <input type="checkbox" id="pp-saida" /> Persona de saída (roda no fim e gera um .md)
+          </label>
+          <div class="pp-saida" id="pp-saida-box" hidden>
+            <label>Arquivo gerado <input id="pp-arquivo" spellcheck="false" placeholder="README.md" /></label>
+            <button type="button" id="pp-template">Editar template</button>
+          </div>
           <div class="pp-grid">
             <label>Motor
               <select id="pp-motor">
@@ -122,6 +129,15 @@
           </label>
           <div class="pp-status" id="pp-status"></div>
         </div>
+        <dialog class="template-dialog" id="template-dialog" aria-labelledby="td-titulo">
+          <div class="td-topo">
+            <div class="panel-title" id="td-titulo">Template de saída</div>
+            <span class="pp-status" id="td-status"></span>
+            <button type="button" id="td-fechar">Fechar</button>
+          </div>
+          <p class="td-ajuda">A persona de saída preenche este markdown no fim da conversa. Troque cada <code>{{marcação}}</code> pelo que ela deve escrever. Só o template é gravado: a persona não muda.</p>
+          <textarea id="td-texto" spellcheck="false" aria-label="Template de saída"></textarea>
+        </dialog>
         <div class="panel">
           <div class="panel-title">Código Mermaid</div>
           <textarea id="code" spellcheck="false" aria-label="Código Mermaid"></textarea>

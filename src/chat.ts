@@ -1,4 +1,4 @@
-import { aplicar, formatarCusto, inicial, sugerirMencoes, type ChatState, type MensagemView } from './chatstate';
+import { aplicar, formatarCusto, inicial, sugerirMencoes, urlDaSaida, type ChatState, type MensagemView } from './chatstate';
 
 /**
  * O chat da lateral esquerda: começa uma conversa entre as personas (debate, resposta ou tarefa),
@@ -25,7 +25,7 @@ export interface ChatDeps {
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
-const ROTULO: Record<string, string> = { sintese: 'síntese', tarefa: 'plano', resultado: 'resultado', erro: 'erro', sistema: '' };
+const ROTULO: Record<string, string> = { sintese: 'síntese', tarefa: 'plano', resultado: 'resultado', saida: 'saída', erro: 'erro', sistema: '' };
 
 const escapar = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -215,7 +215,7 @@ export class ChatPanel {
 
   // ---- desenho ---------------------------------------------------------------------
 
-  private bolha(m: { nome: string; tipo: string; texto: string; persona?: string; motor?: string; modelo?: string; uso?: MensagemView['uso'] }, profundidade: number, pendente = false) {
+  private bolha(m: { nome: string; tipo: string; texto: string; persona?: string; motor?: string; modelo?: string; arquivo?: string; uso?: MensagemView['uso'] }, profundidade: number, pendente = false) {
     const cor = this.deps.personas().find((p) => p.id === m.persona)?.cor;
     const el = document.createElement('div');
     el.className = `msg tipo-${m.tipo}${pendente ? ' pendente' : ''}`;
@@ -235,7 +235,24 @@ export class ChatPanel {
     if (pendente && !m.texto) corpo.innerHTML = `<span class="pensando">${m.motor === 'mcp' ? 'pensando no Claude Code' : 'pensando'}<i>.</i><i>.</i><i>.</i></span>`;
     else corpo.innerHTML = formatar(m.texto);
     el.append(head, corpo);
+    if (m.tipo === 'saida' && m.arquivo && this.estado.conversa && !pendente) el.append(this.acoesDaSaida(this.estado.conversa, m.arquivo, m.texto));
     return el;
+  }
+
+  /** O .md gerado pela persona de saída: baixar ou copiar. */
+  private acoesDaSaida(conversa: string, arquivo: string, texto: string) {
+    const barra = Object.assign(document.createElement('div'), { className: 'msg-arquivo' });
+    barra.append(Object.assign(document.createElement('span'), { className: 'msg-arquivo-nome', textContent: `📄 ${arquivo}` }));
+    const baixar = Object.assign(document.createElement('a'), { className: 'msg-arquivo-acao', textContent: 'Baixar', href: urlDaSaida(this.deps.api, conversa, arquivo), download: arquivo });
+    const copiar = Object.assign(document.createElement('button'), { type: 'button', className: 'msg-arquivo-acao', textContent: 'Copiar' });
+    copiar.addEventListener('click', () => {
+      void navigator.clipboard?.writeText(texto).then(() => {
+        copiar.textContent = 'Copiado';
+        setTimeout(() => (copiar.textContent = 'Copiar'), 1500);
+      });
+    });
+    barra.append(baixar, copiar);
+    return barra;
   }
 
   private render() {
@@ -267,7 +284,7 @@ export class ChatPanel {
       );
     }
     for (const m of s.mensagens) filhos.push(this.bolha(m, profundidade(m)));
-    for (const p of s.pendentes) filhos.push(this.bolha({ ...p, tipo: p.tipo === 'sintese' ? 'sintese' : 'fala' }, 0, true));
+    for (const p of s.pendentes) filhos.push(this.bolha({ ...p, tipo: p.tipo === 'sintese' || p.tipo === 'saida' ? p.tipo : 'fala' }, 0, true));
     if (s.status === 'terminada' && s.resposta) {
       const fim = Object.assign(document.createElement('div'), { className: 'chat-fim', textContent: 'Conversa terminada. Escreva para continuar, ou peça uma nova.' });
       filhos.push(fim);

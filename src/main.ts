@@ -111,7 +111,7 @@ const MOTOR_CURTO: Record<string, string> = { mcp: 'MCP', ollama: 'Ollama', api:
 const modeloCurto = (m: string) => m.replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-(\d+)$/, ' $1');
 canvas.personaDe = (id) => {
   const p = personas.get(id);
-  return p && { cor: p.cor, selo: `${MOTOR_CURTO[p.motor]} · ${modeloCurto(p.modelo)}`, inicio: p.inicio };
+  return p && { cor: p.cor, selo: p.saida ? `Saída · ${p.arquivo}` : `${MOTOR_CURTO[p.motor]} · ${modeloCurto(p.modelo)}`, inicio: p.inicio, saida: p.saida };
 };
 const atualizarPersona = (p: PersonaView) => {
   personas.set(p.id, p);

@@ -49,9 +49,12 @@ function diagrama(nodes: [string, string][], edges: string): Diagram {
 
 let dir: string;
 let eventos: any[];
+/** Arquivos que as personas de saída gravaram. */
+let gravadas: { conversa: string; arquivo: string; texto: string }[];
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conversa-'));
   eventos = [];
+  gravadas = [];
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -67,10 +70,17 @@ function montar(d: Diagram, personas: Record<string, Partial<Persona>>, motores:
     cor: '#123456',
     ferramentas: [],
     inicio: false,
+    saida: false,
+    arquivo: 'saida.md',
     ...personas[id],
   });
   const todos = { mcp: falso('mcp').motor, ollama: falso('ollama').motor, api: falso('api').motor, ...motores };
-  return createConversas({ dir, diagrama: 'teste', ler: () => d, persona: pessoa, motores: todos, emitir: (ev) => eventos.push(ev), limiteTurnos });
+  return createConversas({ dir, diagrama: 'teste', ler: () => d, persona: pessoa, motores: todos,
+    emitir: (ev) => eventos.push(ev),
+    limiteTurnos,
+    template: (id) => `# Template de ${id}\n\n## Resumo\n`,
+    gravarSaida: (conversa, arquivo, texto) => void gravadas.push({ conversa, arquivo, texto }),
+  });
 }
 
 const falas = (c: { mensagens: { nome: string; tipo: string }[] }) => c.mensagens.filter((m) => m.tipo !== 'usuario').map((m) => `${m.nome}:${m.tipo}`);
@@ -301,5 +311,84 @@ describe('tarefa com vários agentes', () => {
     const fim = await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'tarefa' }).id);
     expect(falas(fim)).toEqual(['Orquestradora:tarefa', 'Redatora:tarefa', 'Revisora:resultado', 'Redatora:resultado', 'Orquestradora:sintese']);
     expect(fim.mensagens.find((m) => m.nome === 'Redatora' && m.tipo === 'resultado')!.texto).toBe('Redatora consolidou');
+  });
+});
+
+describe('persona de saída', () => {
+  const readme = { saida: true, arquivo: 'README.md' } as const;
+
+  it('não fala nas rodadas: roda uma vez no fim, preenche o template e gera o arquivo', async () => {
+    const mcp = falso('mcp', (p) => ({ texto: p.tipo === 'saida' ? '# README pronto\n\n## Resumo\nTudo certo.' : `${p.persona.nome} opina` }));
+    const d = diagrama([['a', 'A'], ['b', 'B'], ['s', 'README']], 'a>b b>s s>a');
+    const conversas = montar(d, { s: readme }, { mcp: mcp.motor });
+    const c = conversas.iniciar({ assunto: 'Lançar o app', modo: 'debate', rodadas: 2 });
+    const fim = await conversas.esperar(c.id);
+
+    expect(falas(fim)).toEqual(['A:fala', 'B:fala', 'A:fala', 'B:fala', 'README:saida']);
+    expect(eventos[0].ordem).toEqual(['A', 'B']);
+    const pedido = mcp.pedidos.at(-1)!;
+    expect(pedido.tipo).toBe('saida');
+    expect(pedido.contexto).toContain('Lançar o app');
+    expect(pedido.contexto).toContain('B: B opina');
+    expect(pedido.contexto).toContain('# Template de s');
+    expect(pedido.system).toMatch(/template/i);
+    expect(fim.mensagens.at(-1)).toMatchObject({ tipo: 'saida', nome: 'README', persona: 's', arquivo: 'README.md', texto: '# README pronto\n\n## Resumo\nTudo certo.' });
+    expect(gravadas).toEqual([{ conversa: c.id, arquivo: 'README.md', texto: '# README pronto\n\n## Resumo\nTudo certo.' }]);
+    // Ninguém responde à saída: a seta s>a não faz A responder a ela.
+    expect(mcp.pedidos.filter((p) => p.tipo === 'fala').every((p) => !p.respondendoA.includes('s'))).toBe(true);
+  });
+
+  it('no modo resposta, roda depois da síntese e recebe a resposta final', async () => {
+    const mcp = falso('mcp', (p) => ({ texto: p.tipo === 'sintese' ? 'Resposta polida.' : p.tipo === 'saida' ? '# Doc' : 'opina' }));
+    const d = diagrama([['a', 'A'], ['m', 'Moderadora'], ['s', 'Doc']], 'a>m m>s');
+    const conversas = montar(d, { m: { papel: 'moderadora' }, s: { saida: true } }, { mcp: mcp.motor });
+    const fim = await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'resposta', rodadas: 1 }).id);
+    expect(falas(fim)).toEqual(['A:fala', 'Moderadora:fala', 'Moderadora:sintese', 'Doc:saida']);
+    expect(mcp.pedidos.at(-1)!.contexto).toContain('Resposta polida.');
+    expect(fim.resposta).toBe('Resposta polida.');
+    expect(gravadas[0].arquivo).toBe('saida.md');
+  });
+
+  it('na tarefa, não é delegável e roda depois da consolidação', async () => {
+    const mcp = falso('mcp', (p) => {
+      if (p.tipo === 'tarefa') return { texto: 'DELEGAR Pesquisadora: levante dados\nDELEGAR README: escreva' };
+      if (p.tipo === 'consolidar') return { texto: 'Entrega consolidada.' };
+      if (p.tipo === 'saida') return { texto: '```markdown\n# README\n\nEntrega consolidada.\n```' };
+      return { texto: 'dados' };
+    });
+    const d = diagrama([['o', 'Orquestradora'], ['p', 'Pesquisadora'], ['s', 'README']], 'o>p o>s');
+    const conversas = montar(d, { o: { papel: 'orquestradora' }, s: readme }, { mcp: mcp.motor });
+    const fim = await conversas.esperar(conversas.iniciar({ assunto: 'Lançar o app', modo: 'tarefa' }).id);
+
+    expect(mcp.pedidos[0].delegaveis.map((x) => x.nome)).toEqual(['Pesquisadora']);
+    expect(fim.mensagens.some((m) => m.tipo === 'sistema' && m.texto.includes('README'))).toBe(true);
+    expect(falas(fim).filter((f) => !f.endsWith(':sistema'))).toEqual(['Orquestradora:tarefa', 'Pesquisadora:resultado', 'Orquestradora:sintese', 'README:saida']);
+    expect(mcp.pedidos.at(-1)!.contexto).toContain('Entrega consolidada.');
+    // A cerca de código que o modelo às vezes põe em volta é tirada.
+    expect(fim.mensagens.at(-1)!.texto).toBe('# README\n\nEntrega consolidada.');
+    expect(fim.resposta).toBe('Entrega consolidada.');
+  });
+
+  it('parar antes do fim: a saída não roda', async () => {
+    const mcp = falso('mcp', (p) => new Promise((_r, reject) => p.signal.addEventListener('abort', () => reject(new Error('cancelado')))));
+    const d = diagrama([['a', 'A'], ['s', 'README']], 'a>s');
+    const conversas = montar(d, { s: readme }, { mcp: mcp.motor });
+    const c = conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 });
+    await espera(10);
+    conversas.parar(c.id);
+    const fim = await conversas.esperar(c.id);
+    expect(fim.status).toBe('parada');
+    expect(mcp.pedidos.map((p) => p.tipo)).toEqual(['fala']);
+    expect(gravadas).toEqual([]);
+  });
+
+  it('erro no motor da saída vira mensagem de erro e a conversa termina', async () => {
+    const mcp = falso('mcp');
+    const d = diagrama([['a', 'A'], ['s', 'README']], 'a>s');
+    const conversas = montar(d, { s: { ...readme, motor: 'ollama' } }, { mcp: mcp.motor, ollama: falso('ollama', undefined, false).motor });
+    const fim = await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    expect(fim.status).toBe('terminada');
+    expect(falas(fim)).toEqual(['A:fala', 'README:erro']);
+    expect(gravadas).toEqual([]);
   });
 });

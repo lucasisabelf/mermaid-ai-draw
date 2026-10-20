@@ -16,6 +16,8 @@ export interface PersonaView {
   cor: string;
   ferramentas: string[];
   inicio: boolean;
+  saida: boolean;
+  arquivo: string;
 }
 
 const SALVAR_MS = 600;
@@ -27,6 +29,8 @@ export function personaMd(p: PersonaView) {
   const linhas = [`motor: ${p.motor}`, `modelo: ${p.modelo}`, `esforco: ${p.esforco}`, `papel: ${p.papel}`, `cor: "${p.cor}"`];
   if (p.ferramentas.length) linhas.push(`ferramentas: [${p.ferramentas.join(', ')}]`);
   if (p.inicio) linhas.push('inicio: true');
+  if (p.saida) linhas.push('saida: true');
+  if (p.arquivo && p.arquivo !== 'saida.md') linhas.push(`arquivo: ${JSON.stringify(p.arquivo)}`);
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${linhas.join('\n')}\n\`\`\`\n`;
 }
 
@@ -45,7 +49,10 @@ export class PersonaPanel {
     cor: $<HTMLInputElement>('#pp-cor'),
     prompt: $<HTMLTextAreaElement>('#pp-prompt'),
     inicio: $<HTMLInputElement>('#pp-inicio'),
+    saida: $<HTMLInputElement>('#pp-saida'),
+    arquivo: $<HTMLInputElement>('#pp-arquivo'),
   };
+  private template = new TemplateEditor();
 
   constructor(
     private api: string,
@@ -66,6 +73,7 @@ export class PersonaPanel {
       this.preencherModelos();
       this.editar();
     });
+    $('#pp-template').addEventListener('click', () => this.atual && void this.template.abrir(`${this.api}/personas/${encodeURIComponent(this.atual.id)}/saida`, this.atual.arquivo));
     document.addEventListener('motores', (e) => {
       for (const m of (e as CustomEvent).detail as { nome: string; modelos: string[]; ok: boolean; detalhe: string }[]) {
         this.modelos[m.nome] = m.modelos;
@@ -109,6 +117,9 @@ export class PersonaPanel {
     c.esforco.value = p.esforco;
     c.cor.value = p.cor;
     c.inicio.checked = p.inicio;
+    c.saida.checked = p.saida;
+    if (document.activeElement !== c.arquivo) c.arquivo.value = p.arquivo;
+    $('#pp-saida-box').hidden = !p.saida;
     if (document.activeElement !== c.prompt) c.prompt.value = p.prompt;
     this.preencherModelos();
     this.status('');
@@ -124,7 +135,8 @@ export class PersonaPanel {
   private editar() {
     if (!this.atual) return;
     const c = this.campos;
-    this.atual = { ...this.atual, motor: c.motor.value as PersonaView['motor'], modelo: c.modelo.value.trim(), papel: c.papel.value, esforco: c.esforco.value, cor: c.cor.value, prompt: c.prompt.value, inicio: c.inicio.checked };
+    this.atual = { ...this.atual, motor: c.motor.value as PersonaView['motor'], modelo: c.modelo.value.trim(), papel: c.papel.value, esforco: c.esforco.value, cor: c.cor.value, prompt: c.prompt.value, inicio: c.inicio.checked, saida: c.saida.checked, arquivo: c.arquivo.value.trim() || 'saida.md' };
+    $('#pp-saida-box').hidden = !c.saida.checked;
     this.sujo = true;
     this.status('alterações não salvas…');
     clearTimeout(this.timer);
@@ -145,6 +157,58 @@ export class PersonaPanel {
 
   private status(texto: string, erro = false) {
     const el = $('#pp-status');
+    el.textContent = texto;
+    el.classList.toggle('error', erro);
+  }
+}
+
+/** Editor só do template de saída (personas/<id>.saida.md): grava sozinho, sem tocar na persona. */
+class TemplateEditor {
+  private dialog = $<HTMLDialogElement>('#template-dialog');
+  private texto = $<HTMLTextAreaElement>('#td-texto');
+  private url = '';
+  private timer?: number;
+  private sujo = false;
+
+  constructor() {
+    this.texto.addEventListener('input', () => {
+      this.sujo = true;
+      this.status('alterações não salvas…');
+      clearTimeout(this.timer);
+      this.timer = window.setTimeout(() => void this.salvar(), SALVAR_MS);
+    });
+    $('#td-fechar').addEventListener('click', () => this.dialog.close());
+    // Fechar (botão, Esc ou clique fora) grava o que estiver pendente.
+    this.dialog.addEventListener('close', () => void this.salvar());
+    this.dialog.addEventListener('click', (e) => e.target === this.dialog && this.dialog.close());
+  }
+
+  async abrir(url: string, arquivo: string) {
+    await this.salvar();
+    this.url = url;
+    $('#td-titulo').textContent = `Template de saída · ${arquivo}`;
+    const res = await fetch(url);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return this.status(json.error ?? `Erro ${res.status}`, true);
+    this.texto.value = json.template;
+    this.status(json.padrao ? 'template padrão (ainda não gravado)' : '');
+    this.dialog.showModal();
+    this.texto.focus();
+    this.texto.setSelectionRange(0, 0);
+    this.texto.scrollTop = 0;
+  }
+
+  private async salvar() {
+    clearTimeout(this.timer);
+    if (!this.sujo || !this.url) return;
+    this.sujo = false;
+    const res = await fetch(this.url, { method: 'PUT', body: this.texto.value });
+    const json = await res.json().catch(() => ({}));
+    this.status(res.ok ? 'salvo' : (json.error ?? `Erro ${res.status}`), !res.ok);
+  }
+
+  private status(texto: string, erro = false) {
+    const el = $('#td-status');
     el.textContent = texto;
     el.classList.toggle('error', erro);
   }

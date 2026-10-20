@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aplicar, formatarCusto, inicial, sugerirMencoes } from './chatstate';
+import { aplicar, formatarCusto, inicial, saidasDe, sugerirMencoes, urlDaSaida } from './chatstate';
 
 const msg = (id: string, over: Record<string, unknown> = {}) => ({
   id,
@@ -82,5 +82,17 @@ describe('ajudas do chat', () => {
     expect(formatarCusto(0)).toBe('US$ 0,00');
     expect(formatarCusto(0.0042)).toBe('US$ 0,0042');
     expect(formatarCusto(1.5)).toBe('US$ 1,50');
+  });
+});
+
+describe('persona de saída no chat', () => {
+  it('a mensagem de saída traz o arquivo, que fica na lista para baixar', () => {
+    let s = aplicar(inicial(), { type: 'chat.inicio', conversa: 'c1', assunto: 'App', modo: 'tarefa' });
+    s = aplicar(s, { type: 'chat.mensagem', conversa: 'c1', mensagem: msg('m1', { nome: 'Orquestradora', persona: 'n1', tipo: 'sintese', texto: 'Entrega.' }) });
+    s = aplicar(s, { type: 'chat.mensagem', conversa: 'c1', mensagem: msg('m2', { nome: 'README', persona: 'n5', tipo: 'saida', arquivo: 'README.md', texto: '# App' }) });
+    expect(s.mensagens.at(-1)).toMatchObject({ tipo: 'saida', arquivo: 'README.md' });
+    expect(saidasDe(s)).toEqual([{ id: 'm2', nome: 'README', arquivo: 'README.md', texto: '# App' }]);
+    expect(urlDaSaida('/api/d/meu-app', 'c1', 'README.md')).toBe('/api/d/meu-app/conversas/c1/saidas/README.md');
+    expect(urlDaSaida('/api/d/x', 'c1', 'Plano de ação.md')).toBe('/api/d/x/conversas/c1/saidas/Plano%20de%20a%C3%A7%C3%A3o.md');
   });
 });

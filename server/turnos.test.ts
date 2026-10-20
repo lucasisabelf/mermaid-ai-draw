@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Diagram } from '../src/model.ts';
-import { delegaveis, lerDelegacoes, mencionada, ordemDaRodada, predecessores, raizes } from './turnos.ts';
+import { delegaveis, lerDelegacoes, mencionada, ordemDaRodada, predecessores, raizes, semNos } from './turnos.ts';
 
 const d = (nodes: string, edges: string): Diagram => ({
   nodes: nodes.split(' ').map((id, i) => ({ id, text: id.toUpperCase(), x: i * 100, y: 0 })),
@@ -51,6 +51,16 @@ describe('ordem dos turnos pelas setas', () => {
     // Ids que não existem são ignorados; sem nenhum válido, vale a regra das raízes.
     expect(ordemDaRodada(cadeia, ['x'])).toEqual(['a', 'b', 'c']);
     expect(ordemDaRodada(cadeia, [])).toEqual(['a', 'b', 'c']);
+  });
+
+  it('semNos tira retângulos (e as setas deles) do desenho: as personas de saída não entram nas rodadas', () => {
+    const g = d('a b s c', 'a>b b>s s>c a>c');
+    const sem = semNos(g, ['s']);
+    expect(sem.nodes.map((n) => n.id)).toEqual(['a', 'b', 'c']);
+    expect(sem.edges.map((e) => `${e.from}>${e.to}`)).toEqual(['a>b', 'a>c']);
+    expect(ordemDaRodada(sem)).toEqual(['a', 'b', 'c']);
+    expect(delegaveis(sem, 'b')).toEqual([]);
+    expect(semNos(g, [])).toBe(g);
   });
 
   it('delegáveis são os destinos das setas que saem', () => {

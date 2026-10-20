@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { Diagram } from '../src/model.ts';
 import { OpError } from '../src/ops.ts';
 import type { MotorNome, Persona } from './personas.ts';
-import { acharPessoa, arestas, delegaveis, lerDelegacoes, mencionada, ordemDaRodada, predecessores, type Delegacao } from './turnos.ts';
+import { acharPessoa, arestas, delegaveis, lerDelegacoes, mencionada, ordemDaRodada, predecessores, semNos, type Delegacao } from './turnos.ts';
 
 /**
  * Uma conversa entre as personas do diagrama. Ela não sabe falar: a cada vez, monta um pedido
@@ -15,11 +15,14 @@ import { acharPessoa, arestas, delegaveis, lerDelegacoes, mencionada, ordemDaRod
  *   resposta  o debate e, no fim, a síntese (pela moderadora, ou pela última a falar)
  *   tarefa    a orquestradora delega pelas setas (DELEGAR <persona>: <tarefa>), as delegadas
  *             trabalham em paralelo (e podem delegar adiante) e ela consolida a entrega
+ *
+ * As personas de saída (saida: true) ficam fora das rodadas e das delegações: no fim, cada uma
+ * preenche o seu template com o resultado e gera um .md para baixar.
  */
 
 export type Modo = 'debate' | 'resposta' | 'tarefa';
 export const MODOS: Modo[] = ['debate', 'resposta', 'tarefa'];
-export type TipoPedido = 'fala' | 'sintese' | 'tarefa' | 'execucao' | 'consolidar';
+export type TipoPedido = 'fala' | 'sintese' | 'tarefa' | 'execucao' | 'consolidar' | 'saida';
 
 export interface Pedido {
   /** Id do turno: é por ele que o MCP responde. */
@@ -60,7 +63,7 @@ export interface Motor {
   atender(pedido: Pedido, delta: (texto: string) => void): Promise<Resposta>;
 }
 
-export type TipoMensagem = 'usuario' | 'fala' | 'sintese' | 'tarefa' | 'resultado' | 'erro' | 'sistema';
+export type TipoMensagem = 'usuario' | 'fala' | 'sintese' | 'tarefa' | 'resultado' | 'saida' | 'erro' | 'sistema';
 
 export interface Mensagem {
   id: string;
@@ -75,6 +78,8 @@ export interface Mensagem {
   respondendoA?: string[];
   /** Na tarefa: a mensagem que originou esta delegação. */
   pai?: string;
+  /** Na saída: o nome do .md gerado. */
+  arquivo?: string;
   uso?: Uso;
 }
 
@@ -106,6 +111,10 @@ export interface OpcoesConversas {
   emitir: (ev: Record<string, unknown>) => void;
   /** Turnos no máximo por conversa (padrão 40): protege de um ciclo que não acabaria. */
   limiteTurnos?: number;
+  /** O template de saída da persona (personas/<id>.saida.md). */
+  template?: (id: string) => string;
+  /** Grava o .md que a persona de saída gerou. */
+  gravarSaida?: (conversa: string, arquivo: string, texto: string) => void;
 }
 
 interface Viva {
@@ -157,12 +166,19 @@ export function createConversas(opts: OpcoesConversas) {
 
   const emitir = (c: Conversa, ev: Record<string, unknown>) => opts.emitir({ ...ev, conversa: c.id });
 
+  /** As personas de saída: rodam só no fim. */
+  const saidas = (d: Diagram) => d.nodes.filter((n) => opts.persona(n.id, n.text).saida).map((n) => n.id);
+  /** O desenho das rodadas e das delegações: sem as personas de saída. */
+  const rodada = (d: Diagram) => semNos(d, saidas(d));
+
   /** A ordem da rodada, começando pelos blocos de início marcados nas personas. */
-  const ordem = (d: Diagram) =>
-    ordemDaRodada(
-      d,
-      d.nodes.filter((n) => opts.persona(n.id, n.text).inicio).map((n) => n.id),
+  const ordem = (d: Diagram) => {
+    const r = rodada(d);
+    return ordemDaRodada(
+      r,
+      r.nodes.filter((n) => opts.persona(n.id, n.text).inicio).map((n) => n.id),
     );
+  };
 
   const registrar = (v: Viva, m: Omit<Mensagem, 'id' | 'em'>): Mensagem => {
     const msg: Mensagem = { id: `m-${randomUUID().slice(0, 8)}`, em: agora(), ...m };
@@ -186,6 +202,17 @@ export function createConversas(opts: OpcoesConversas) {
 
   const montarSystem = (p: Persona, d: Diagram) => {
     const outras = d.nodes.filter((n) => n.id !== p.id).map((n) => n.text);
+    if (p.saida) {
+      return [
+        p.prompt.trim(),
+        '---',
+        `Você é ${p.nome}, a persona de saída de uma conversa em grupo${outras.length ? ` (entre: ${outras.join(', ')})` : ''}.`,
+        `Sua tarefa é preencher o template de saída (o arquivo ${p.arquivo}) com o resultado da conversa.`,
+        'Regras: responda em português do Brasil; mantenha os títulos e a ordem do template; troque cada',
+        '{{marcação}} pelo conteúdo; não invente o que não está na conversa (escreva "a definir");',
+        'devolva só o markdown preenchido, sem comentários antes ou depois.',
+      ].join('\n');
+    }
     return [
       p.prompt.trim(),
       '---',
@@ -282,7 +309,7 @@ export function createConversas(opts: OpcoesConversas) {
     if (v.turnos >= limite) throw new LimiteAtingido();
     const d = opts.ler();
     const ja = falaram(v.dados);
-    const responde = respondendoA ?? predecessores(d, id).filter((p) => ja.has(p));
+    const responde = respondendoA ?? predecessores(rodada(d), id).filter((p) => ja.has(p));
     const pedido = responde.length
       ? `Sua vez: responda a ${responde.map((r) => nomeDe(d, r)).join(' e ')}${responde.includes('usuario') ? ', que falou diretamente com você' : ''}.`
       : 'Sua vez: abra a conversa com a sua visão sobre o assunto.';
@@ -333,7 +360,7 @@ export function createConversas(opts: OpcoesConversas) {
 
   const tarefaDe = async (v: Viva, id: string, tarefa: string, pai: string | undefined, topo: boolean, quemPediu?: string): Promise<string | undefined> => {
     const d = opts.ler();
-    const alcance = delegaveis(d, id);
+    const alcance = delegaveis(rodada(d), id);
     const objetivo = topo ? '' : `\n\nObjetivo geral do grupo: ${v.dados.assunto}`;
 
     // Sem para quem delegar (e não sendo a orquestradora): executa e entrega.
@@ -403,6 +430,26 @@ export function createConversas(opts: OpcoesConversas) {
     if (entrega !== undefined) v.dados.resposta = entrega;
   };
 
+  // ---- saída ---------------------------------------------------------------------------
+
+  /** No fim: cada persona de saída preenche o seu template com o resultado da conversa. */
+  const gerarSaidas = async (v: Viva) => {
+    const d = opts.ler();
+    for (const id of saidas(d)) {
+      const template = opts.template?.(id) ?? '';
+      const final = v.dados.resposta ? `\n\nResposta final:\n${v.dados.resposta}` : '';
+      const r = await turno(v, id, {
+        tipo: 'saida',
+        respondendoA: predecessores(d, id),
+        contexto: `Assunto: ${v.dados.assunto}${conversaAteAgora(v.dados)}${final}\n\nTemplate de saída:\n\n${template}\n\nAgora preencha o template com o resultado da conversa e devolva só o markdown.`,
+      });
+      if (!r) continue;
+      const texto = semCerca(r.resposta.texto);
+      registrar(v, mensagemDe(r, 'saida', { arquivo: r.persona.arquivo, texto }));
+      opts.gravarSaida?.(v.dados.id, r.persona.arquivo, texto);
+    }
+  };
+
   // ---- ciclo de vida ------------------------------------------------------------------
 
   /** Roda `fn` como a execução da conversa, cuidando de parar, limite e fim. */
@@ -455,7 +502,10 @@ export function createConversas(opts: OpcoesConversas) {
       vivas.set(dados.id, v);
       emitir(dados, { type: 'chat.inicio', assunto, modo, rodadas, ordem: ordem(d).map((id) => nomeDe(d, id)) });
       registrar(v, { tipo: 'usuario', nome: 'Você', texto: assunto });
-      executar(v, () => (modo === 'tarefa' ? tarefa(v) : debate(v)));
+      executar(v, async () => {
+        await (modo === 'tarefa' ? tarefa(v) : debate(v));
+        await gerarSaidas(v);
+      });
       return structuredClone(dados);
     },
 
@@ -475,7 +525,7 @@ export function createConversas(opts: OpcoesConversas) {
         const quem =
           alvo ??
           seq.find((p) => opts.persona(p, nomeDe(d, p)).papel === 'moderadora') ??
-          [...v.dados.mensagens].reverse().find((m) => m.persona)?.persona ??
+          [...v.dados.mensagens].reverse().find((m) => m.persona && seq.includes(m.persona))?.persona ??
           seq[0];
         v.parar = new AbortController();
         v.turnos = 0;
@@ -546,6 +596,13 @@ export function createConversas(opts: OpcoesConversas) {
 }
 
 class LimiteAtingido extends Error {}
+
+/** Tira a cerca de código (```markdown … ```) que o modelo às vezes põe em volta do documento. */
+function semCerca(texto: string) {
+  const t = texto.trim();
+  const m = /^```[\w-]*\n([\s\S]*?)\n```$/.exec(t);
+  return (m ? m[1] : t).trim();
+}
 
 /** Uma promessa que só rejeita, quando o sinal é abortado. */
 function cancelado(signal: AbortSignal) {

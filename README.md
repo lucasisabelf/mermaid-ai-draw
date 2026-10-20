@@ -88,6 +88,15 @@ cor: "#e11d48"
 - **Paleta:** na aba **Componentes**, as personas ficam agrupadas por motor. O mesmo papel (Otimista, Cética, Especialista, Moderadora, Orquestradora, Pesquisadora, Redatora, Revisora) pode nascer em qualquer motor.
 - **Templates:** os papéis ficam em [`templates/*.md`](templates), e o modelo padrão de cada motor está no yaml de cada um (`modelos: {mcp, ollama, api}`). Editar o arquivo muda o padrão.
 
+### Persona de saída
+
+Marque **Persona de saída** no painel (no yaml: `saida: true` e `arquivo: README.md`).
+- **Nas rodadas:** ela não fala e não recebe delegação.
+- **No fim:** quando todas as rodadas acabam (ou depois da síntese, ou da consolidação da tarefa), ela roda **uma vez** no seu motor. Recebe o assunto, a conversa, a resposta final e o **template de saída**, e devolve o template preenchido.
+- **No chat:** o resultado aparece como um documento, com **Baixar** e **Copiar**. O arquivo fica em `diagrams/<diagrama>/saidas/<conversa>/<arquivo>`.
+- **Template:** fica à parte, em `personas/<id>.saida.md`. Edite pelo botão **Editar template** do painel, que mexe só no template, sem tocar no prompt nem no yaml. Troque cada `{{marcação}}` pelo que ela deve escrever.
+- **No canvas:** ela mostra um ícone de documento e o selo `Saída · README.md`.
+
 ## Os modos
 
 | Modo | O que acontece |
@@ -109,7 +118,7 @@ No canvas, quem tem a vez **brilha**, e a "mensagem" percorre a seta de quem ela
 
 Importe pelo menu ☰ → **Importar**:
 - [`examples/debate-cafeteria.zip`](examples/debate-cafeteria.zip): Otimista → Cética → Moderadora → Otimista, para debater e responder.
-- [`examples/tarefa-lancamento.zip`](examples/tarefa-lancamento.zip): a Orquestradora delega para Pesquisadora, Redatora e Revisora, e a Redatora também passa para a Revisora.
+- [`examples/tarefa-lancamento.zip`](examples/tarefa-lancamento.zip): a Orquestradora delega para Pesquisadora, Redatora e Revisora, e a Redatora também passa para a Revisora. No fim, a persona de saída **README** preenche o template e gera o `README.md` do projeto.
 - [`examples/debate-misto.zip`](examples/debate-misto.zip): os três motores no mesmo debate (Otimista no Ollama, Cética na API e Moderadora no MCP). Sem o Ollama ou sem a chave, a persona daquele motor aparece como erro no chat, e as outras continuam.
 - [`examples/debate-times-mcp.zip`](examples/debate-times-mcp.zip): debate estruturado Time A vs Time B. A Moderadora abre, os dois times defendem as suas posições e fazem réplicas cruzadas, e a Moderadora fecha com a síntese. Tudo no MCP (`claude-opus-5-5`).
 - [`examples/debate-times-ollama.zip`](examples/debate-times-ollama.zip): o mesmo debate, 100% local no Ollama (`qwen2.5:3b`).
@@ -125,10 +134,13 @@ curl localhost:5190/api/motores                         # disponível? {nome, ok
 curl -X POST $D/templates/cetica -d '{"motor":"ollama","x":300,"y":200}'
 curl $D/personas/n2                                     # {markdown, persona}
 curl -X PUT --data-binary @n2.md $D/personas/n2
+curl $D/personas/n5/saida                               # {template, arquivo, padrao}: persona de saída
+curl -X PUT --data-binary @template.md $D/personas/n5/saida
 curl -X POST $D/conversas -d '{"assunto":"…","modo":"resposta","rodadas":2}'
 curl -X POST $D/conversas/<id>/mensagens -d '{"texto":"@Cética e o aluguel?"}'
 curl -X POST $D/conversas/<id>/sintetizar
 curl -X POST $D/conversas/<id>/parar
+curl -OJ $D/conversas/<id>/saidas/README.md             # baixa o .md gerado
 ```
 
 O SSE do diagrama (`/api/d/<slug>/events`) também manda os eventos do chat: `chat.inicio`, `chat.turno`, `chat.delta`, `chat.mensagem`, `chat.delegacao`, `chat.fim` e `persona.atualizada`.

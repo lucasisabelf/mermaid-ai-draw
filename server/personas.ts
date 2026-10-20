@@ -50,11 +50,30 @@ export interface Persona {
   ferramentas: string[];
   /** Bloco de início: a rodada começa por ela (num ciclo, é quem abre a conversa). */
   inicio: boolean;
+  /** Persona de saída: não fala nas rodadas; roda uma vez no fim e preenche o template em `arquivo`. */
+  saida: boolean;
+  /** O nome do .md que a persona de saída gera (padrão saida.md). */
+  arquivo: string;
 }
+
+/** Template de quem é marcada como saída e ainda não tem o seu (personas/<id>.saida.md). */
+export const TEMPLATE_SAIDA_PADRAO = `# {{título}}
+
+## Resumo
+{{o resultado da conversa em poucas linhas}}
+
+## Detalhes
+{{os pontos principais, em tópicos}}
+
+## Próximos passos
+{{o que fazer a seguir}}
+`;
 
 const FENCE_RE = /^```ya?ml[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/m;
 const COR_RE = /^#[0-9a-fA-F]{6}$/;
 const ID_RE = /^[A-Za-z][\w-]*$/;
+/** Só um nome de arquivo .md, sem pasta. */
+export const ARQUIVO_RE = /^[\p{L}\p{N}_][\p{L}\p{N} _.()-]*\.md$/u;
 const CORES = ['#2563eb', '#e11d48', '#059669', '#7c3aed', '#d97706', '#0891b2', '#db2777', '#4f46e5'];
 
 /** Cor estável para quem não escolheu uma (pelo id). */
@@ -106,6 +125,10 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
     invalido(`"ferramentas" aceita só: ${FERRAMENTAS.join(', ')}.`);
   }
   if (y.inicio !== undefined && typeof y.inicio !== 'boolean') invalido('"inicio" deve ser true ou false.');
+  if (y.saida !== undefined && typeof y.saida !== 'boolean') invalido('"saida" deve ser true ou false.');
+  if (y.arquivo !== undefined && (typeof y.arquivo !== 'string' || !ARQUIVO_RE.test(y.arquivo) || y.arquivo.includes('..'))) {
+    invalido('"arquivo" deve ser só o nome de um .md, como "README.md".');
+  }
   return {
     id,
     nome,
@@ -117,6 +140,8 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
     cor: (y.cor as string | undefined) ?? corPadrao(id),
     ferramentas: ferramentas as string[],
     inicio: y.inicio === true,
+    saida: y.saida === true,
+    arquivo: (y.arquivo as string | undefined) ?? 'saida.md',
   };
 }
 
@@ -124,6 +149,8 @@ export function renderPersona(p: Persona): string {
   const opcoes: Record<string, unknown> = { motor: p.motor, modelo: p.modelo, esforco: p.esforco, papel: p.papel, cor: p.cor };
   if (p.ferramentas.length) opcoes.ferramentas = p.ferramentas;
   if (p.inicio) opcoes.inicio = true;
+  if (p.saida) opcoes.saida = true;
+  if (p.arquivo !== 'saida.md') opcoes.arquivo = p.arquivo;
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${stringify(opcoes)}\`\`\`\n`;
 }
 
@@ -170,21 +197,61 @@ export class PersonaStore {
     this.gravarMd(p.id, renderPersona(p));
   }
 
+  private arquivoTemplate(id: string) {
+    this.arquivo(id);
+    return path.join(this.dir, `${id}.saida.md`);
+  }
+
+  temTemplate(id: string) {
+    return fs.existsSync(this.arquivoTemplate(id));
+  }
+
+  /** O template de saída (personas/<id>.saida.md); sem arquivo, o padrão. */
+  lerTemplate(id: string): string {
+    try {
+      return fs.readFileSync(this.arquivoTemplate(id), 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      return TEMPLATE_SAIDA_PADRAO;
+    }
+  }
+
+  /** Grava só o template: a persona (<id>.md) não muda. */
+  gravarTemplate(id: string, md: string) {
+    if (!md.trim()) invalido('O template de saída não pode ficar vazio.');
+    fs.mkdirSync(this.dir, { recursive: true });
+    fs.writeFileSync(this.arquivoTemplate(id), md);
+  }
+
   remover(id: string) {
-    const src = this.arquivo(id);
-    if (!fs.existsSync(src)) return;
     const lixo = path.join(this.dir, '.removidos');
-    fs.mkdirSync(lixo, { recursive: true });
-    fs.renameSync(src, path.join(lixo, `${id}-${Date.now()}.md`));
+    const quando = Date.now();
+    for (const [src, nome] of [
+      [this.arquivo(id), `${id}-${quando}.md`],
+      [this.arquivoTemplate(id), `${id}-${quando}.saida.md`],
+    ]) {
+      if (!fs.existsSync(src)) continue;
+      fs.mkdirSync(lixo, { recursive: true });
+      fs.renameSync(src, path.join(lixo, nome));
+    }
   }
 
   /** Ids com arquivo (para exportar). */
   ids(): string[] {
+    return this.listar('.md');
+  }
+
+  /** Ids com template de saída próprio (para exportar). */
+  idsComTemplate(): string[] {
+    return this.listar('.saida.md');
+  }
+
+  private listar(fim: string): string[] {
     try {
       return fs
         .readdirSync(this.dir)
-        .filter((f) => f.endsWith('.md'))
-        .map((f) => f.slice(0, -3))
+        .filter((f) => f.endsWith(fim))
+        .map((f) => f.slice(0, -fim.length))
         .filter((id) => ID_RE.test(id))
         .sort();
     } catch {
@@ -234,5 +301,5 @@ export function carregarTemplates(dir: string): Template[] {
 }
 
 export function personaDoTemplate(t: Template, id: string, motor: MotorNome, nome = t.titulo): Persona {
-  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false };
+  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md' };
 }

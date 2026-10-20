@@ -110,7 +110,7 @@ export class Canvas {
   /** Soltou um template da paleta (`tpl:<motor>:<papel>`) no canvas. */
   onTemplate: (motor: string, papel: string, at: { x: number; y: number }) => void = () => {};
   /** A persona de cada retângulo (cor e selo "motor · modelo"); sem ela, o retângulo comum. */
-  personaDe: (id: string) => { cor: string; selo: string; inicio?: boolean } | undefined = () => undefined;
+  personaDe: (id: string) => { cor: string; selo: string; inicio?: boolean; saida?: boolean } | undefined = () => undefined;
   /** Personas com a vez agora: o retângulo brilha. */
   private falando = new Set<string>();
   private edgeLayer = el('g');
@@ -728,7 +728,7 @@ export class Canvas {
     const selected = this.isSelected('node', n.id);
     const persona = this.personaDe(n.id);
     const g = el('g', {
-      class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}${persona ? ' persona' : ''}${persona?.inicio ? ' inicio' : ''}${this.falando.has(n.id) ? ' falando' : ''}`,
+      class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}${persona ? ' persona' : ''}${persona?.inicio ? ' inicio' : ''}${persona?.saida ? ' saida' : ''}${this.falando.has(n.id) ? ' falando' : ''}`,
       'data-node': n.id,
       transform: `translate(${n.x - w / 2} ${n.y - h / 2})`,
     });
@@ -767,6 +767,13 @@ export class Canvas {
       el('title', {}, play).textContent = 'Bloco de início: a conversa começa aqui';
       el('circle', { cx: 0, cy: 0, r: 10, class: 'inicio-badge-bg' }, play);
       el('path', { d: 'M -3 -5 L 5 0 L -3 5 Z', class: 'inicio-badge-icon' }, play);
+    }
+    // Persona de saída: um documento no canto direito (roda no fim e gera o .md).
+    if (persona?.saida) {
+      const doc = el('g', { class: 'saida-badge', transform: `translate(${w} 0)` }, g);
+      el('title', {}, doc).textContent = 'Persona de saída: roda uma vez no fim e gera o .md';
+      el('circle', { cx: 0, cy: 0, r: 10, class: 'saida-badge-bg' }, doc);
+      el('path', { d: 'M -4 -6 H 2 L 5 -3 V 6 H -4 Z M 2 -6 V -3 H 5 M -2 0 H 3 M -2 3 H 3', class: 'saida-badge-icon' }, doc);
     }
     el('circle', { cx: w, cy: h / 2, r: 6, class: 'handle', 'data-handle': n.id }, g);
     const toggle = el('g', { class: 'status', 'data-toggle': n.id }, g);

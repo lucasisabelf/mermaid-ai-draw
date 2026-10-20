@@ -65,6 +65,23 @@ describe('parsePersona', () => {
     expect(() => parsePersona('n1', 'x\n\n```yaml\ninicio: talvez\n```\n', 'X')).toThrow(/inicio/);
   });
 
+  it('marca a persona de saída (saida: true) com o arquivo que ela gera', () => {
+    const comum = parsePersona('n1', CETICA, 'Cética');
+    expect(comum).toMatchObject({ saida: false, arquivo: 'saida.md' });
+    expect(renderPersona(comum)).not.toMatch(/saida|arquivo/);
+
+    const p = parsePersona('n5', 'Preenche o README.\n\n```yaml\nsaida: true\narquivo: README.md\n```\n', 'README');
+    expect(p).toMatchObject({ saida: true, arquivo: 'README.md' });
+    expect(renderPersona(p)).toContain('saida: true');
+    expect(renderPersona(p)).toContain('arquivo: README.md');
+    expect(parsePersona('n5', renderPersona(p), 'README')).toEqual(p);
+
+    // O arquivo é só um nome .md (sem pasta), e saida é booleano.
+    for (const ruim of ['arquivo: ../fora.md', 'arquivo: docs/x.md', 'arquivo: README.txt', 'arquivo: ""', 'saida: sim']) {
+      expect(() => parsePersona('n5', `x\n\n\`\`\`yaml\n${ruim}\n\`\`\`\n`, 'X'), ruim).toThrow(OpError);
+    }
+  });
+
   it('renderPersona e parsePersona fazem ida e volta', () => {
     const p = parsePersona('n2', CETICA, 'Cética');
     expect(parsePersona('n2', renderPersona(p), 'Cética')).toEqual(p);
@@ -88,6 +105,28 @@ describe('PersonaStore', () => {
     expect(fs.existsSync(path.join(dir, 'n1.md'))).toBe(false);
     expect(fs.readdirSync(path.join(dir, '.removidos'))).toHaveLength(1);
     expect(() => store.ler('../fora', 'x')).toThrow(OpError);
+  });
+
+  it('o template de saída fica num arquivo próprio, separado da persona', () => {
+    const store = new PersonaStore(dir);
+    store.gravarMd('n5', CETICA);
+    // Sem arquivo: o template padrão.
+    expect(store.temTemplate('n5')).toBe(false);
+    expect(store.lerTemplate('n5')).toContain('#');
+
+    store.gravarTemplate('n5', '# {{titulo}}\n\n## Visão\n');
+    expect(fs.readFileSync(path.join(dir, 'n5.saida.md'), 'utf8')).toBe('# {{titulo}}\n\n## Visão\n');
+    expect(store.lerTemplate('n5')).toBe('# {{titulo}}\n\n## Visão\n');
+    // Gravar o template não toca na persona, e ele não vira uma persona na lista.
+    expect(fs.readFileSync(path.join(dir, 'n5.md'), 'utf8')).toBe(CETICA);
+    expect(store.ids()).toEqual(['n5']);
+    expect(store.idsComTemplate()).toEqual(['n5']);
+    expect(() => store.gravarTemplate('n5', '   ')).toThrow(OpError);
+
+    // Remover o retângulo leva os dois arquivos para .removidos/.
+    store.remover('n5');
+    expect(fs.existsSync(path.join(dir, 'n5.saida.md'))).toBe(false);
+    expect(fs.readdirSync(path.join(dir, '.removidos'))).toHaveLength(2);
   });
 });
 
