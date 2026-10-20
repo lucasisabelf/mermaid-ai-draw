@@ -15,6 +15,7 @@ export interface PersonaView {
   papel: string;
   cor: string;
   ferramentas: string[];
+  inicio: boolean;
 }
 
 const SALVAR_MS = 600;
@@ -25,6 +26,7 @@ const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)
 export function personaMd(p: PersonaView) {
   const linhas = [`motor: ${p.motor}`, `modelo: ${p.modelo}`, `esforco: ${p.esforco}`, `papel: ${p.papel}`, `cor: "${p.cor}"`];
   if (p.ferramentas.length) linhas.push(`ferramentas: [${p.ferramentas.join(', ')}]`);
+  if (p.inicio) linhas.push('inicio: true');
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${linhas.join('\n')}\n\`\`\`\n`;
 }
 
@@ -42,6 +44,7 @@ export class PersonaPanel {
     esforco: $<HTMLSelectElement>('#pp-esforco'),
     cor: $<HTMLInputElement>('#pp-cor'),
     prompt: $<HTMLTextAreaElement>('#pp-prompt'),
+    inicio: $<HTMLInputElement>('#pp-inicio'),
   };
 
   constructor(
@@ -73,6 +76,14 @@ export class PersonaPanel {
     });
   }
 
+  /** Tecla I: marca ou desmarca o bloco de início da persona selecionada (e grava já). */
+  alternarInicio() {
+    if (!this.atual) return;
+    this.campos.inicio.checked = !this.campos.inicio.checked;
+    this.editar();
+    void this.salvar();
+  }
+
   /** Outra aba (ou o MCP) mudou a persona: recarrega se não há edição pendente aqui. */
   atualizada(p: PersonaView) {
     if (p.id === this.id && !this.sujo) this.preencher(p);
@@ -97,6 +108,7 @@ export class PersonaPanel {
     c.papel.value = p.papel;
     c.esforco.value = p.esforco;
     c.cor.value = p.cor;
+    c.inicio.checked = p.inicio;
     if (document.activeElement !== c.prompt) c.prompt.value = p.prompt;
     this.preencherModelos();
     this.status('');
@@ -112,7 +124,7 @@ export class PersonaPanel {
   private editar() {
     if (!this.atual) return;
     const c = this.campos;
-    this.atual = { ...this.atual, motor: c.motor.value as PersonaView['motor'], modelo: c.modelo.value.trim(), papel: c.papel.value, esforco: c.esforco.value, cor: c.cor.value, prompt: c.prompt.value };
+    this.atual = { ...this.atual, motor: c.motor.value as PersonaView['motor'], modelo: c.modelo.value.trim(), papel: c.papel.value, esforco: c.esforco.value, cor: c.cor.value, prompt: c.prompt.value, inicio: c.inicio.checked };
     this.sujo = true;
     this.status('alterações não salvas…');
     clearTimeout(this.timer);

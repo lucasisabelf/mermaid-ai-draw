@@ -110,7 +110,7 @@ export class Canvas {
   /** Soltou um template da paleta (`tpl:<motor>:<papel>`) no canvas. */
   onTemplate: (motor: string, papel: string, at: { x: number; y: number }) => void = () => {};
   /** A persona de cada retângulo (cor e selo "motor · modelo"); sem ela, o retângulo comum. */
-  personaDe: (id: string) => { cor: string; selo: string } | undefined = () => undefined;
+  personaDe: (id: string) => { cor: string; selo: string; inicio?: boolean } | undefined = () => undefined;
   /** Personas com a vez agora: o retângulo brilha. */
   private falando = new Set<string>();
   private edgeLayer = el('g');
@@ -728,12 +728,14 @@ export class Canvas {
     const selected = this.isSelected('node', n.id);
     const persona = this.personaDe(n.id);
     const g = el('g', {
-      class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}${persona ? ' persona' : ''}${this.falando.has(n.id) ? ' falando' : ''}`,
+      class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}${persona ? ' persona' : ''}${persona?.inicio ? ' inicio' : ''}${this.falando.has(n.id) ? ' falando' : ''}`,
       'data-node': n.id,
       transform: `translate(${n.x - w / 2} ${n.y - h / 2})`,
     });
     if (persona) g.style.setProperty('--persona', persona.cor);
     if (selected) el('rect', { x: -4, y: -4, width: w + 8, height: h + 8, rx: RADIUS + 4, class: 'node-halo' }, g);
+    // Bloco de início: borda dupla e um ▶ no canto.
+    if (persona?.inicio) el('rect', { x: -3.5, y: -3.5, width: w + 7, height: h + 7, rx: RADIUS + 3, class: 'inicio-ring' }, g);
     el('rect', { width: w, height: h, rx: RADIUS, class: 'node-rect' }, g);
     el('text', { x: w / 2, y: n.owner ? 21 : h / 2, class: 'node-label' }, g).textContent = n.text;
     // Responsável: segunda linha dentro do retângulo (duplo clique edita) ou, no selecionado sem ninguém, um botão.
@@ -746,7 +748,7 @@ export class Canvas {
       el('circle', { cx: x0 + 4, cy: 39.5, r: 2.6, class: 'owner-icon' }, og);
       el('path', { d: `M ${x0 - 1} 47 a 5 4 0 0 1 10 0 z`, class: 'owner-icon' }, og);
       el('text', { x: x0 + 14, y: 43, class: 'owner-label' }, og).textContent = n.owner;
-    } else if (selected) {
+    } else if (selected && !persona) {
       const label = '+ responsável';
       const pw = textWidth(label, OWNER_FONT) + 18;
       const pg = el('g', { class: 'add-owner', 'data-add-owner': n.id }, g);
@@ -754,11 +756,17 @@ export class Canvas {
       el('text', { x: w / 2, y: h + 18.5, class: 'add-owner-label' }, pg).textContent = label;
     }
     // Selo da persona: motor e modelo, logo abaixo do retângulo.
-    if (persona && !(selected && !n.owner)) {
+    if (persona) {
       const sw = textWidth(persona.selo, OWNER_FONT) + 14;
       const chip = el('g', { class: 'persona-chip' }, g);
       el('rect', { x: w / 2 - sw / 2, y: h + 6, width: sw, height: 18, rx: 9, class: 'persona-chip-bg' }, chip);
       el('text', { x: w / 2, y: h + 15.5, class: 'persona-chip-label' }, chip).textContent = persona.selo;
+    }
+    if (persona?.inicio) {
+      const play = el('g', { class: 'inicio-badge' }, g);
+      el('title', {}, play).textContent = 'Bloco de início: a conversa começa aqui';
+      el('circle', { cx: 0, cy: 0, r: 10, class: 'inicio-badge-bg' }, play);
+      el('path', { d: 'M -3 -5 L 5 0 L -3 5 Z', class: 'inicio-badge-icon' }, play);
     }
     el('circle', { cx: w, cy: h / 2, r: 6, class: 'handle', 'data-handle': n.id }, g);
     const toggle = el('g', { class: 'status', 'data-toggle': n.id }, g);

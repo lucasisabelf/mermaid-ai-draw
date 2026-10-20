@@ -15,10 +15,11 @@ export function raizes(d: Diagram): string[] {
 }
 
 /**
- * A ordem de uma rodada: a partir das raízes, em largura e na ordem das setas, cada retângulo uma
- * vez. Ciclos que nenhuma raiz alcança entram a partir do primeiro retângulo deles.
+ * A ordem de uma rodada: a partir dos blocos de início (`inicios`; sem nenhum, das raízes), em
+ * largura e na ordem das setas, cada retângulo uma vez. Quem não foi alcançado entra depois, a
+ * partir do primeiro retângulo que sobrou.
  */
-export function ordemDaRodada(d: Diagram): string[] {
+export function ordemDaRodada(d: Diagram, inicios: string[] = []): string[] {
   const vistos = new Set<string>();
   const ordem: string[] = [];
   const percorrer = (inicio: string[]) => {
@@ -35,7 +36,8 @@ export function ordemDaRodada(d: Diagram): string[] {
       }
     }
   };
-  percorrer(raizes(d));
+  const marcados = d.nodes.filter((n) => inicios.includes(n.id)).map((n) => n.id);
+  percorrer(marcados.length ? marcados : raizes(d));
   for (const n of d.nodes) if (!vistos.has(n.id)) percorrer([n.id]);
   return ordem;
 }

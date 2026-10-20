@@ -42,6 +42,17 @@ describe('ordem dos turnos pelas setas', () => {
     expect(predecessores(g, 'a')).toEqual(['x', 'b']);
   });
 
+  it('bloco de início: a rodada começa por quem foi marcado', () => {
+    const ciclo = d('a b c', 'a>b b>c c>a');
+    expect(ordemDaRodada(ciclo, ['b'])).toEqual(['b', 'c', 'a']);
+    // Marcado no meio de uma cadeia: começa por ele, e quem ficou antes entra depois.
+    const cadeia = d('a b c', 'a>b b>c');
+    expect(ordemDaRodada(cadeia, ['b'])).toEqual(['b', 'c', 'a']);
+    // Ids que não existem são ignorados; sem nenhum válido, vale a regra das raízes.
+    expect(ordemDaRodada(cadeia, ['x'])).toEqual(['a', 'b', 'c']);
+    expect(ordemDaRodada(cadeia, [])).toEqual(['a', 'b', 'c']);
+  });
+
   it('delegáveis são os destinos das setas que saem', () => {
     const g = d('o p r v', 'o>p o>r r>v o>o');
     expect(delegaveis(g, 'o')).toEqual(['p', 'r']);

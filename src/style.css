@@ -629,6 +629,31 @@ button.danger {
   stroke-width: 3;
 }
 
+/* Bloco de início: borda dupla (por fora) e um ▶ no canto. */
+.inicio-ring {
+  fill: none;
+  stroke: var(--persona, var(--accent));
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+}
+
+.inicio-badge-bg {
+  fill: var(--persona, var(--accent));
+}
+
+.inicio-badge-icon {
+  fill: #fff;
+}
+
+.pp-inicio {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+  margin-bottom: 8px;
+  font-size: 12px !important;
+  color: var(--text) !important;
+}
+
 /* Persona: a borda e a bolinha na cor dela; com a vez, o retângulo brilha. */
 .node.persona .node-rect {
   stroke: var(--persona);

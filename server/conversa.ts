@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { Diagram } from '../src/model.ts';
 import { OpError } from '../src/ops.ts';
 import type { MotorNome, Persona } from './personas.ts';
-import { acharPessoa, arestas, delegaveis, lerDelegacoes, mencionada, ordemDaRodada, predecessores, raizes, type Delegacao } from './turnos.ts';
+import { acharPessoa, arestas, delegaveis, lerDelegacoes, mencionada, ordemDaRodada, predecessores, type Delegacao } from './turnos.ts';
 
 /**
  * Uma conversa entre as personas do diagrama. Ela não sabe falar: a cada vez, monta um pedido
@@ -157,6 +157,13 @@ export function createConversas(opts: OpcoesConversas) {
 
   const emitir = (c: Conversa, ev: Record<string, unknown>) => opts.emitir({ ...ev, conversa: c.id });
 
+  /** A ordem da rodada, começando pelos blocos de início marcados nas personas. */
+  const ordem = (d: Diagram) =>
+    ordemDaRodada(
+      d,
+      d.nodes.filter((n) => opts.persona(n.id, n.text).inicio).map((n) => n.id),
+    );
+
   const registrar = (v: Viva, m: Omit<Mensagem, 'id' | 'em'>): Mensagem => {
     const msg: Mensagem = { id: `m-${randomUUID().slice(0, 8)}`, em: agora(), ...m };
     v.dados.mensagens.push(msg);
@@ -286,10 +293,10 @@ export function createConversas(opts: OpcoesConversas) {
 
   const sintese = async (v: Viva) => {
     const d = opts.ler();
-    const ordem = ordemDaRodada(d);
-    const moderadora = ordem.find((id) => opts.persona(id, nomeDe(d, id)).papel === 'moderadora');
+    const seq = ordem(d);
+    const moderadora = seq.find((id) => opts.persona(id, nomeDe(d, id)).papel === 'moderadora');
     const ultima = [...v.dados.mensagens].reverse().find((m) => m.tipo === 'fala' && m.persona)?.persona;
-    const quem = moderadora ?? ultima ?? ordem[0];
+    const quem = moderadora ?? ultima ?? seq[0];
     if (!quem) return;
     const r = await turno(v, quem, {
       tipo: 'sintese',
@@ -308,7 +315,7 @@ export function createConversas(opts: OpcoesConversas) {
 
   const debate = async (v: Viva) => {
     rodadas: for (let r = 0; r < v.dados.rodadas; r++) {
-      for (const id of ordemDaRodada(opts.ler())) {
+      for (const id of ordem(opts.ler())) {
         await atenderChamadas(v);
         if (v.sintetizarJa) break rodadas;
         await fala(v, id);
@@ -390,8 +397,8 @@ export function createConversas(opts: OpcoesConversas) {
 
   const tarefa = async (v: Viva) => {
     const d = opts.ler();
-    const ordem = ordemDaRodada(d);
-    const orq = ordem.find((id) => opts.persona(id, nomeDe(d, id)).papel === 'orquestradora') ?? raizes(d)[0];
+    const seq = ordem(d);
+    const orq = seq.find((id) => opts.persona(id, nomeDe(d, id)).papel === 'orquestradora') ?? seq[0];
     const entrega = await tarefaDe(v, orq, v.dados.assunto, undefined, true);
     if (entrega !== undefined) v.dados.resposta = entrega;
   };
@@ -446,7 +453,7 @@ export function createConversas(opts: OpcoesConversas) {
       const dados: Conversa = { id: `c-${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`, diagrama: opts.diagrama, assunto, modo, rodadas, status: 'rodando', mensagens: [], criadaEm: agora(), atualizadaEm: agora() };
       const v: Viva = { dados, parar: new AbortController(), chamadas: [], sintetizarJa: false, turnos: 0, execucao: Promise.resolve(), emAndamento: new Map() };
       vivas.set(dados.id, v);
-      emitir(dados, { type: 'chat.inicio', assunto, modo, rodadas, ordem: ordemDaRodada(d).map((id) => nomeDe(d, id)) });
+      emitir(dados, { type: 'chat.inicio', assunto, modo, rodadas, ordem: ordem(d).map((id) => nomeDe(d, id)) });
       registrar(v, { tipo: 'usuario', nome: 'Você', texto: assunto });
       executar(v, () => (modo === 'tarefa' ? tarefa(v) : debate(v)));
       return structuredClone(dados);
@@ -464,12 +471,12 @@ export function createConversas(opts: OpcoesConversas) {
         if (alvo) v.chamadas.push(alvo);
       } else {
         // Conversa encerrada: responde a mencionada, a moderadora ou a última que falou.
-        const ordem = ordemDaRodada(d);
+        const seq = ordem(d);
         const quem =
           alvo ??
-          ordem.find((p) => opts.persona(p, nomeDe(d, p)).papel === 'moderadora') ??
+          seq.find((p) => opts.persona(p, nomeDe(d, p)).papel === 'moderadora') ??
           [...v.dados.mensagens].reverse().find((m) => m.persona)?.persona ??
-          ordem[0];
+          seq[0];
         v.parar = new AbortController();
         v.turnos = 0;
         executar(v, async () => {

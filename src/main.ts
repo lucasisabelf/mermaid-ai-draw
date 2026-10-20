@@ -111,7 +111,7 @@ const MOTOR_CURTO: Record<string, string> = { mcp: 'MCP', ollama: 'Ollama', api:
 const modeloCurto = (m: string) => m.replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-(\d+)$/, ' $1');
 canvas.personaDe = (id) => {
   const p = personas.get(id);
-  return p && { cor: p.cor, selo: `${MOTOR_CURTO[p.motor]} · ${modeloCurto(p.modelo)}` };
+  return p && { cor: p.cor, selo: `${MOTOR_CURTO[p.motor]} · ${modeloCurto(p.modelo)}`, inicio: p.inicio };
 };
 const atualizarPersona = (p: PersonaView) => {
   personas.set(p.id, p);
@@ -241,10 +241,11 @@ async function criarDoTemplate(motor: string, papel: string, at?: { x: number; y
   const json = await res.json();
   if (!res.ok) return void (hintEl.textContent = json.error ?? 'Não consegui criar a persona.');
   personas.set(json.persona.id, json.persona);
-  // O retângulo chega pelo SSE; quando chegar, fica selecionado.
+  // O SSE desse retângulo vem marcado com o nosso clientId e é ignorado (como se já o tivéssemos
+  // aplicado), então ele entra no desenho por aqui, a partir da resposta.
   const id = json.node.id as string;
-  const selecionar = () => (store.node(id) ? store.select({ kind: 'node', id }) : setTimeout(selecionar, 50));
-  selecionar();
+  if (!store.node(id)) store.applyRemote({ type: 'node.added', node: json.node });
+  store.select({ kind: 'node', id });
 }
 canvas.onTemplate = (motor, papel, at) => void criarDoTemplate(motor, papel, at);
 
@@ -299,6 +300,9 @@ document.addEventListener('keydown', (e) => {
     if (!sync.pulse(store.selection.id)) canvas.pulseEdge(store.selection.id);
   } else if (e.key.toLowerCase() === 'a' && store.selection?.kind === 'node' && !e.ctrlKey && !e.metaKey) {
     store.toggleActive(store.selection.id);
+  } else if (e.key.toLowerCase() === 'i' && store.selection?.kind === 'node' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    // Bloco de início: a conversa começa por esta persona.
+    personaPanel.alternarInicio();
   } else if (e.key.toLowerCase() === 'r' && store.selection?.kind === 'node' && !e.ctrlKey && !e.metaKey && !e.altKey) {
     e.preventDefault(); // senão a letra cairia no campo que acabou de abrir
     canvas.edit('owner', store.selection.id);

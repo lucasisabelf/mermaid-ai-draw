@@ -66,6 +66,7 @@ function montar(d: Diagram, personas: Record<string, Partial<Persona>>, motores:
     papel: 'debatedora',
     cor: '#123456',
     ferramentas: [],
+    inicio: false,
     ...personas[id],
   });
   const todos = { mcp: falso('mcp').motor, ollama: falso('ollama').motor, api: falso('api').motor, ...motores };
@@ -106,6 +107,14 @@ describe('debate', () => {
     const salva = JSON.parse(fs.readFileSync(path.join(dir, `${c.id}.json`), 'utf8'));
     expect(salva.mensagens).toHaveLength(7);
     expect(conversas.listar().map((x) => x.id)).toEqual([c.id]);
+  });
+
+  it('o bloco de início escolhe quem abre o debate num ciclo', async () => {
+    const d = diagrama([['n1', 'Otimista'], ['n2', 'Cética'], ['n3', 'Moderadora']], 'n1>n2 n2>n3 n3>n1');
+    const conversas = montar(d, { n3: { inicio: true } }, {});
+    const fim = await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    expect(falas(fim)).toEqual(['Moderadora:fala', 'Otimista:fala', 'Cética:fala']);
+    expect(eventos[0]).toMatchObject({ type: 'chat.inicio', ordem: ['Moderadora', 'Otimista', 'Cética'] });
   });
 
   it('cada persona usa o próprio motor: MCP, Ollama e API na mesma conversa', async () => {

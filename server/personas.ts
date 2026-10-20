@@ -48,6 +48,8 @@ export interface Persona {
   papel: Papel;
   cor: string;
   ferramentas: string[];
+  /** Bloco de início: a rodada começa por ela (num ciclo, é quem abre a conversa). */
+  inicio: boolean;
 }
 
 const FENCE_RE = /^```ya?ml[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/m;
@@ -103,6 +105,7 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
   if (!Array.isArray(ferramentas) || ferramentas.some((f) => !FERRAMENTAS.includes(f))) {
     invalido(`"ferramentas" aceita só: ${FERRAMENTAS.join(', ')}.`);
   }
+  if (y.inicio !== undefined && typeof y.inicio !== 'boolean') invalido('"inicio" deve ser true ou false.');
   return {
     id,
     nome,
@@ -113,12 +116,14 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
     papel: umDe('papel', y.papel, PAPEIS, 'debatedora'),
     cor: (y.cor as string | undefined) ?? corPadrao(id),
     ferramentas: ferramentas as string[],
+    inicio: y.inicio === true,
   };
 }
 
 export function renderPersona(p: Persona): string {
   const opcoes: Record<string, unknown> = { motor: p.motor, modelo: p.modelo, esforco: p.esforco, papel: p.papel, cor: p.cor };
   if (p.ferramentas.length) opcoes.ferramentas = p.ferramentas;
+  if (p.inicio) opcoes.inicio = true;
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${stringify(opcoes)}\`\`\`\n`;
 }
 
@@ -229,5 +234,5 @@ export function carregarTemplates(dir: string): Template[] {
 }
 
 export function personaDoTemplate(t: Template, id: string, motor: MotorNome, nome = t.titulo): Persona {
-  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [] };
+  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false };
 }

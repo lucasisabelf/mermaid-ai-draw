@@ -56,6 +56,15 @@ describe('parsePersona', () => {
     }
   });
 
+  it('marca o bloco de início (inicio: true), que é falso por padrão', () => {
+    expect(parsePersona('n1', CETICA, 'Cética').inicio).toBe(false);
+    const p = parsePersona('n1', 'Prompt.\n\n```yaml\ninicio: true\n```\n', 'X');
+    expect(p.inicio).toBe(true);
+    expect(renderPersona(p)).toContain('inicio: true');
+    expect(renderPersona(parsePersona('n1', CETICA, 'Cética'))).not.toContain('inicio');
+    expect(() => parsePersona('n1', 'x\n\n```yaml\ninicio: talvez\n```\n', 'X')).toThrow(/inicio/);
+  });
+
   it('renderPersona e parsePersona fazem ida e volta', () => {
     const p = parsePersona('n2', CETICA, 'Cética');
     expect(parsePersona('n2', renderPersona(p), 'Cética')).toEqual(p);

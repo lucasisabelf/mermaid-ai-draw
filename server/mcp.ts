@@ -74,7 +74,7 @@ function servidor(deps: DepsMcp) {
       const { diagrama: d, personas } = deps.abrir(diagrama);
       const nome = (id: string) => d.nodes.find((n) => n.id === id)?.text ?? id;
       return json({
-        personas: personas.map((p) => ({ id: p.id, nome: p.nome, motor: p.motor, modelo: p.modelo, papel: p.papel })),
+        personas: personas.map((p) => ({ id: p.id, nome: p.nome, motor: p.motor, modelo: p.modelo, papel: p.papel, inicio: p.inicio })),
         setas: d.edges.filter((e) => e.from !== e.to).map((e) => `${nome(e.from)} → ${nome(e.to)}`),
       });
     }),
@@ -93,9 +93,10 @@ function servidor(deps: DepsMcp) {
       },
     },
     tocar(({ diagrama, assunto, modo, rodadas }) => {
-      const { diagrama: d, conversas } = deps.abrir(diagrama);
+      const { diagrama: d, personas, conversas } = deps.abrir(diagrama);
       const c = conversas.iniciar({ assunto, modo, rodadas });
-      return json({ conversa: c.id, modo: c.modo, rodadas: c.rodadas, ordem: ordemDaRodada(d).map((id) => d.nodes.find((n) => n.id === id)!.text) });
+      const inicios = personas.filter((p) => p.inicio).map((p) => p.id);
+      return json({ conversa: c.id, modo: c.modo, rodadas: c.rodadas, ordem: ordemDaRodada(d, inicios).map((id) => d.nodes.find((n) => n.id === id)!.text) });
     }),
   );
 
