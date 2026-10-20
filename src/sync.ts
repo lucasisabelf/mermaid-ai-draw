@@ -33,6 +33,8 @@ export class ServerSync {
   constructor(
     private store: Store,
     private onPulse: (msg: PulseMessage) => void = () => {},
+    /** Eventos que não mexem no desenho (chat.*, persona.atualizada): vão para o chat e o canvas. */
+    private onOther: (msg: { type: string; [k: string]: unknown }) => void = () => {},
   ) {
     const events = new EventSource(`${API}/events`);
     events.onmessage = (ev) => this.receive(JSON.parse(ev.data) as ServerMessage);
@@ -54,6 +56,9 @@ export class ServerSync {
       return;
     }
     if (msg.type === 'edge.pulse') return this.onPulse(msg);
+    // Conversa e personas não têm rev: não entram na ordem das mudanças do desenho.
+    const tipo = (msg as { type: string }).type;
+    if (tipo.startsWith('chat.') || tipo === 'persona.atualizada') return this.onOther(msg as unknown as { type: string });
     if (this.resyncing) return;
     if (msg.rev !== this.rev + 1) return void this.resync();
     this.rev = msg.rev;

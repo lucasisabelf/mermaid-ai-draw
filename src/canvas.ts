@@ -107,6 +107,12 @@ export class Canvas {
   private spaceHeld = false;
   /** A câmera ou a ferramenta mudou (a barra de zoom acompanha). */
   onView: () => void = () => {};
+  /** Soltou um template da paleta (`tpl:<motor>:<papel>`) no canvas. */
+  onTemplate: (motor: string, papel: string, at: { x: number; y: number }) => void = () => {};
+  /** A persona de cada retângulo (cor e selo "motor · modelo"); sem ela, o retângulo comum. */
+  personaDe: (id: string) => { cor: string; selo: string } | undefined = () => undefined;
+  /** Personas com a vez agora: o retângulo brilha. */
+  private falando = new Set<string>();
   private edgeLayer = el('g');
   private nodeLayer = el('g');
   /** Mensagens percorrendo as setas e pulsos nos retângulos: fora das camadas que são redesenhadas. */
@@ -474,7 +480,10 @@ export class Canvas {
     if (!tool) return;
     e.preventDefault();
     const p = this.point(e);
-    if (tool === 'rect') {
+    if (tool.startsWith('tpl:')) {
+      const [, motor, papel] = tool.split(':');
+      this.onTemplate(motor, papel, p);
+    } else if (tool === 'rect') {
       this.edit('node', this.store.addNode(p.x, p.y).id);
     } else if (tool === 'arrow') {
       // Soltar a seta sobre um retângulo define a origem; o próximo clique define o destino.
@@ -701,14 +710,29 @@ export class Canvas {
     return g;
   }
 
+  /** Liga ou desliga o brilho de quem está com a vez. */
+  setFalando(id: string, on: boolean) {
+    if (on === this.falando.has(id)) return;
+    if (on) this.falando.add(id);
+    else this.falando.delete(id);
+    this.renderNode(id, false);
+  }
+
+  /** Redesenha um retângulo (a persona dele mudou). */
+  redesenhar(id: string) {
+    this.renderNode(id, false);
+  }
+
   private buildNode(n: DiagramNode) {
     const { w, h } = nodeSize(n);
     const selected = this.isSelected('node', n.id);
+    const persona = this.personaDe(n.id);
     const g = el('g', {
-      class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}`,
+      class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}${persona ? ' persona' : ''}${this.falando.has(n.id) ? ' falando' : ''}`,
       'data-node': n.id,
       transform: `translate(${n.x - w / 2} ${n.y - h / 2})`,
     });
+    if (persona) g.style.setProperty('--persona', persona.cor);
     if (selected) el('rect', { x: -4, y: -4, width: w + 8, height: h + 8, rx: RADIUS + 4, class: 'node-halo' }, g);
     el('rect', { width: w, height: h, rx: RADIUS, class: 'node-rect' }, g);
     el('text', { x: w / 2, y: n.owner ? 21 : h / 2, class: 'node-label' }, g).textContent = n.text;
@@ -728,6 +752,13 @@ export class Canvas {
       const pg = el('g', { class: 'add-owner', 'data-add-owner': n.id }, g);
       el('rect', { x: w / 2 - pw / 2, y: h + 8, width: pw, height: 20, rx: 10, class: 'add-owner-bg' }, pg);
       el('text', { x: w / 2, y: h + 18.5, class: 'add-owner-label' }, pg).textContent = label;
+    }
+    // Selo da persona: motor e modelo, logo abaixo do retângulo.
+    if (persona && !(selected && !n.owner)) {
+      const sw = textWidth(persona.selo, OWNER_FONT) + 14;
+      const chip = el('g', { class: 'persona-chip' }, g);
+      el('rect', { x: w / 2 - sw / 2, y: h + 6, width: sw, height: 18, rx: 9, class: 'persona-chip-bg' }, chip);
+      el('text', { x: w / 2, y: h + 15.5, class: 'persona-chip-label' }, chip).textContent = persona.selo;
     }
     el('circle', { cx: w, cy: h / 2, r: 6, class: 'handle', 'data-handle': n.id }, g);
     const toggle = el('g', { class: 'status', 'data-toggle': n.id }, g);

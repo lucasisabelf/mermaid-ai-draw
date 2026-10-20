@@ -7,6 +7,12 @@ import { parseMermaid, toMermaid, type Diagram } from '../src/model.ts';
 import * as ops from '../src/ops.ts';
 import { OpError } from '../src/ops.ts';
 import { createApi } from './api.ts';
+import { createConversas, type Motor } from './conversa.ts';
+import { criarHandlerMcp } from './mcp.ts';
+import { criarMotorApi, MODELOS_API } from './motores/api.ts';
+import { criarMotorMcp } from './motores/mcp.ts';
+import { criarMotorOllama } from './motores/ollama.ts';
+import { carregarTemplates, MOTORES, personaDoTemplate, PersonaStore, type MotorNome } from './personas.ts';
 
 /**
  * Vários diagramas, um por pasta, cada um com a própria API (a de api.ts):
@@ -24,6 +30,21 @@ import { createApi } from './api.ts';
  *   GET    /api/diagrams/:slug/export   .zip (meta.json + diagram.json + diagram.mmd); ?format=mmd baixa só o código
  *   POST   /api/diagrams/import?name=   cria a partir de um .zip exportado ou de um .mmd
  *   GET    /api/events                  Server-Sent Events: a lista a cada mudança
+ *
+ * Personas de IA (cada retângulo é uma; o .md fica em personas/<id>.md):
+ *
+ *   GET    /api/templates                         os papéis da paleta e os motores
+ *   GET    /api/motores                           status de cada motor (mcp, ollama, api)
+ *   POST   /api/d/:slug/templates/:papel          cria o retângulo e a persona {motor, x?, y?, text?}
+ *   GET    /api/d/:slug/personas                  as personas dos retângulos
+ *   GET    /api/d/:slug/personas/:id              {markdown, persona}
+ *   PUT    /api/d/:slug/personas/:id              grava o .md (corpo em texto); 400 se inválido
+ *   POST   /api/d/:slug/conversas                 começa {assunto, modo?, rodadas?}
+ *   GET    /api/d/:slug/conversas[/:id]           lista / uma conversa
+ *   POST   /api/d/:slug/conversas/:id/mensagens   o usuário fala no chat {texto} (@persona chama alguém)
+ *   POST   /api/d/:slug/conversas/:id/sintetizar  pede a resposta polida
+ *   POST   /api/d/:slug/conversas/:id/parar
+ *   /mcp                                          servidor MCP (o Claude Code dá voz às personas "mcp")
  *
  * As rotas antigas sem prefixo (/api/nodes, /api/diagram…) continuam valendo para o primeiro diagrama.
  */
@@ -47,6 +68,8 @@ export interface DiagramItem {
 }
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
+/** Persona dentro de um .zip exportado: personas/<id>.md (o id é validado antes de virar arquivo). */
+const PERSONA_ZIP_RE = /^(?:[^/]+\/)?personas\/([A-Za-z][\w-]*)\.md$/;
 
 /** Nome da pasta: minúsculas, sem acento, palavras separadas por hífen. */
 export function slugify(name: string): string {
@@ -68,12 +91,26 @@ function fail(status: 400 | 404 | 409, message: string): never {
 export interface WorkspaceOptions {
   /** Diagrama de antes dos vários diagramas (um diagram.json solto): vira o primeiro, se ainda não há nenhum. */
   legacyFile?: string;
+  /** Pasta dos papéis da paleta (templates/*.md). */
+  templatesDir?: string;
+  /** Troca os motores (os testes passam falsos). O MCP é sempre o do servidor. */
+  motores?: Partial<Record<Exclude<MotorNome, 'mcp'>, Motor>>;
 }
+
+const TITULO_MOTOR: Record<MotorNome, { titulo: string; descricao: string }> = {
+  mcp: { titulo: 'MCP · Claude Code', descricao: 'O Claude Code conectado ao /mcp dá voz à persona (não precisa de chave).' },
+  ollama: { titulo: 'Ollama · local', descricao: 'Um modelo local no Ollama (grátis, na CPU: modelos de 3 a 4B).' },
+  api: { titulo: 'API · Claude', descricao: 'A API da Anthropic (precisa de ANTHROPIC_API_KEY).' },
+};
 
 export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
   fs.mkdirSync(dir, { recursive: true });
   const apis = new Map<string, Api>();
   const clients = new Set<ServerResponse>();
+  const templatesDir = options.templatesDir ?? path.resolve('templates');
+  const mcp = criarMotorMcp();
+  const ollama: Motor & { modelos?: () => Promise<string[]> } = options.motores?.ollama ?? criarMotorOllama();
+  const motores: Record<MotorNome, Motor> = { mcp: mcp.motor, ollama, api: options.motores?.api ?? criarMotorApi() };
 
   const folder = (slug: string) => path.join(dir, slug);
   const isDiagram = (slug: string) =>
@@ -121,17 +158,48 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     }, 300);
   };
 
+  const personasDe = (slug: string) => new PersonaStore(path.join(folder(slug), 'personas'));
   const api = (slug: string): Api => {
     let a = apis.get(slug);
     if (!a) {
       if (!isDiagram(slug)) fail(404, `Diagrama "${slug}" não encontrado.`);
-      a = createApi(path.join(folder(slug), 'diagram.json'), { onChange: notifySoon });
+      a = createApi(path.join(folder(slug), 'diagram.json'), { onChange: notifySoon, onNodeRemoved: (id) => personasDe(slug).remover(id) });
       apis.set(slug, a);
     }
     return a;
   };
 
+  // ---- personas e conversas de cada diagrama -------------------------------------
+  type Ai = { personas: PersonaStore; conversas: ReturnType<typeof createConversas> };
+  const ais = new Map<string, Ai>();
+  const ai = (slug: string): Ai => {
+    let x = ais.get(slug);
+    if (!x) {
+      const a = api(slug);
+      const personas = personasDe(slug);
+      const conversas = createConversas({
+        dir: path.join(folder(slug), 'conversas'),
+        diagrama: slug,
+        ler: () => a.diagram(),
+        persona: (id, nome) => personas.ler(id, nome),
+        motores,
+        emitir: (ev) => a.broadcast({ ...ev, source: 'server' }),
+      });
+      ais.set(slug, (x = { personas, conversas }));
+    }
+    return x;
+  };
+  /** As personas de todos os retângulos do diagrama. */
+  const personasDoDiagrama = (slug: string) => {
+    const { personas } = ai(slug);
+    return api(slug)
+      .diagram()
+      .nodes.map((n) => personas.ler(n.id, n.text));
+  };
+
   const close = (slug: string) => {
+    ais.get(slug)?.conversas.fechar();
+    ais.delete(slug);
     apis.get(slug)?.close();
     apis.delete(slug);
   };
@@ -204,7 +272,16 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     return raw.diagram ? ops.buildDiagram(raw.diagram) : { nodes: [], edges: [] };
   };
 
-  const duplicate = (slug: string) => create(`${readMeta(slug).name} (cópia)`, current(slug));
+  const copiarPersonas = (de: string, para: string) => {
+    const origem = personasDe(de);
+    const destino = personasDe(para);
+    for (const id of origem.ids()) destino.gravarMd(id, origem.lerMd(id, id));
+  };
+  const duplicate = (slug: string) => {
+    const item = create(`${readMeta(slug).name} (cópia)`, current(slug));
+    copiarPersonas(slug, item.slug);
+    return item;
+  };
 
   const exportZip = (slug: string) => {
     const d = current(slug);
@@ -215,6 +292,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
         [META]: strToU8(`${JSON.stringify(meta, null, 2)}\n`),
         'diagram.json': strToU8(`${JSON.stringify({ rev: 0, diagram: d }, null, 2)}\n`),
         'diagram.mmd': strToU8(`${toMermaid(d)}\n`),
+        ...Object.fromEntries(personasDe(slug).ids().map((id) => [`personas/${id}.md`, strToU8(personasDe(slug).lerMd(id, id))])),
       }),
     };
   };
@@ -233,7 +311,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     try {
       // Só os arquivos que interessam são descompactados: nada do zip é gravado com o nome que traz.
       files = unzipSync(new Uint8Array(data), {
-        filter: (f) => [META, 'diagram.json', 'diagram.mmd'].includes(path.posix.basename(f.name)) && f.originalSize <= MAX_IMPORT,
+        filter: (f) => ([META, 'diagram.json', 'diagram.mmd'].includes(path.posix.basename(f.name)) || PERSONA_ZIP_RE.test(f.name)) && f.originalSize <= MAX_IMPORT,
       });
     } catch (err) {
       fail(400, `Arquivo não é um .zip válido: ${(err as Error).message}`);
@@ -263,7 +341,17 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     try {
       meta = JSON.parse(pick(META) ?? '{}');
     } catch {}
-    return create(name || meta.name || 'Importado', diagram);
+    const item = create(name || meta.name || 'Importado', diagram);
+    // As personas: só o id validado vira nome de arquivo (nada do caminho do zip é usado).
+    const store = personasDe(item.slug);
+    for (const [k, v] of Object.entries(files)) {
+      const id = PERSONA_ZIP_RE.exec(k)?.[1];
+      if (!id) continue;
+      try {
+        store.gravarMd(id, strFromU8(v));
+      } catch {}
+    }
+    return item;
   };
 
   // Primeira vez: o diagrama solto de antes vira o primeiro; sem nada, um diagrama vazio.
@@ -322,6 +410,20 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     const [resource, slug, action] = parts;
 
     try {
+      if (resource === 'd' && slug && ['personas', 'templates', 'conversas'].includes(action)) {
+        return await rotasDeIa(req, res, slug, parts.slice(2), method);
+      }
+      if (resource === 'templates' && parts.length === 1 && method === 'GET') {
+        return send(res, 200, {
+          motores: MOTORES.map((m) => ({ nome: m, ...TITULO_MOTOR[m] })),
+          papeis: carregarTemplates(templatesDir),
+        });
+      }
+      if (resource === 'motores' && parts.length === 1 && method === 'GET') {
+        const status = await Promise.all(MOTORES.map(async (m) => ({ nome: m, ...TITULO_MOTOR[m], ...(await motores[m].disponivel()) })));
+        const modelos: Record<MotorNome, string[]> = { mcp: MODELOS_API, api: MODELOS_API, ollama: (await ollama.modelos?.()) ?? [] };
+        return send(res, 200, status.map((s) => ({ ...s, modelos: modelos[s.nome] })));
+      }
       if (resource === 'd' && slug) {
         const a = api(slug);
         // A API do diagrama recebe o caminho sem o prefixo /d/:slug.
@@ -375,10 +477,83 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     }
   };
 
+  async function rotasDeIa(req: IncomingMessage, res: ServerResponse, slug: string, parts: string[], method: string) {
+    const a = api(slug);
+    const { personas, conversas } = ai(slug);
+    const [recurso, ref, acao] = parts;
+    const source = String(req.headers['x-client-id'] ?? 'api');
+    const texto = async () => (await readBody(req, 1024 * 1024)).toString('utf8');
+    const corpo = async (): Promise<Record<string, unknown>> => {
+      const raw = await texto();
+      if (!raw.trim()) return {};
+      try {
+        return JSON.parse(raw);
+      } catch {
+        fail(400, 'Corpo não é um JSON válido.');
+      }
+    };
+    const no = (id: string) => a.diagram().nodes.find((n) => n.id === id) ?? fail(404, `Retângulo "${id}" não encontrado.`);
+
+    if (recurso === 'templates' && ref && !acao && method === 'POST') {
+      const t = carregarTemplates(templatesDir).find((x) => x.nome === ref) ?? fail(404, `Template "${ref}" não existe.`);
+      const body = await corpo();
+      const motor = (body.motor ?? 'mcp') as MotorNome;
+      if (!MOTORES.includes(motor)) fail(400, `"motor" deve ser ${MOTORES.join(', ')}.`);
+      const ev = a.commit(source, (d) =>
+        ops.addNode(d, { text: typeof body.text === 'string' && body.text.trim() ? body.text : t.titulo, ...(typeof body.x === 'number' ? { x: body.x } : {}), ...(typeof body.y === 'number' ? { y: body.y } : {}) }),
+      );
+      if (ev.type !== 'node.added') fail(400, 'Não consegui criar o retângulo.');
+      const persona = personaDoTemplate(t, ev.node.id, motor, ev.node.text);
+      personas.gravar(persona);
+      a.broadcast({ type: 'persona.atualizada', id: persona.id, persona, source });
+      return send(res, 201, { node: ev.node, persona });
+    }
+    if (recurso === 'personas') {
+      if (!ref && method === 'GET') return send(res, 200, personasDoDiagrama(slug));
+      if (ref && !acao) {
+        const n = no(ref);
+        if (method === 'GET') return send(res, 200, { markdown: personas.lerMd(n.id, n.text), persona: personas.ler(n.id, n.text) });
+        if (method === 'PUT') {
+          personas.gravarMd(n.id, await texto());
+          const persona = personas.ler(n.id, n.text);
+          a.broadcast({ type: 'persona.atualizada', id: n.id, persona, source });
+          return send(res, 200, { persona });
+        }
+      }
+    }
+    if (recurso === 'conversas') {
+      if (!ref && method === 'GET') return send(res, 200, conversas.listar());
+      if (!ref && method === 'POST') return send(res, 201, conversas.iniciar(await corpo()));
+      if (ref && !acao && method === 'GET') return send(res, 200, conversas.obter(ref));
+      if (ref && method === 'POST' && acao === 'mensagens') return send(res, 202, conversas.intervir(ref, (await corpo()).texto));
+      if (ref && method === 'POST' && acao === 'sintetizar') {
+        conversas.sintetizar(ref);
+        return send(res, 202, { ok: true });
+      }
+      if (ref && method === 'POST' && acao === 'parar') {
+        conversas.parar(ref);
+        return send(res, 202, { ok: true });
+      }
+    }
+    return send(res, 404, { error: `Rota não encontrada: ${method} /api/d/${slug}/${parts.join('/')}` });
+  }
+
+  const mcpHandler = criarHandlerMcp({
+    mcp,
+    listar: () => list(),
+    abrir: (slug) => {
+      if (!isDiagram(slug)) fail(404, `Diagrama "${slug}" não encontrado.`);
+      return { diagrama: api(slug).diagram(), personas: personasDoDiagrama(slug), conversas: ai(slug).conversas };
+    },
+  });
+
   return {
     handler,
+    mcpHandler,
     list,
     close() {
+      for (const x of ais.values()) x.conversas.fechar();
+      ais.clear();
       clearTimeout(notifyTimer);
       for (const a of apis.values()) a.close();
       apis.clear();
@@ -396,8 +571,9 @@ export function diagramApi(dir = 'diagrams', legacyFile = 'diagram.json'): Plugi
   let root = '';
   // A pasta só é aberta quando um servidor sobe (não ao carregar a config, ex.: no vitest).
   let diagrams: ReturnType<typeof createDiagrams> | undefined;
-  const handler: Connect.NextHandleFunction = (req, res, next) =>
-    (diagrams ??= createDiagrams(path.resolve(root, dir), { legacyFile: path.resolve(root, legacyFile) })).handler(req, res, next);
+  const abrir = () => (diagrams ??= createDiagrams(path.resolve(root, dir), { legacyFile: path.resolve(root, legacyFile), templatesDir: path.resolve(root, 'templates') }));
+  const handler: Connect.NextHandleFunction = (req, res, next) => abrir().handler(req, res, next);
+  const mcp: Connect.NextHandleFunction = (req, res, next) => abrir().mcpHandler(req, res, next);
   return {
     name: 'mermaid-draw-api',
     configResolved(config) {
@@ -405,9 +581,11 @@ export function diagramApi(dir = 'diagrams', legacyFile = 'diagram.json'): Plugi
     },
     configureServer(server) {
       server.middlewares.use('/api', handler);
+      server.middlewares.use('/mcp', mcp);
     },
     configurePreviewServer(server) {
       server.middlewares.use('/api', handler);
+      server.middlewares.use('/mcp', mcp);
     },
   };
 }

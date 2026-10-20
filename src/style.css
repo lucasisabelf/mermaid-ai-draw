@@ -99,7 +99,7 @@ button:disabled {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 170px 1fr 360px;
+  grid-template-columns: 340px 1fr 340px;
 }
 
 .panel-title {
@@ -114,12 +114,352 @@ button:disabled {
 /* ---- paleta ---- */
 
 .palette {
-  padding: 16px;
+  padding: 12px 14px;
   border-right: 1px solid var(--border);
   background: var(--surface);
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+}
+
+.left-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.left-pane[hidden] {
+  display: none;
+}
+
+.palette .tabs {
+  display: flex;
+  gap: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.palette .tab {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.palette .tab.active {
+  background: var(--accent-soft);
+  color: var(--text);
+  border-color: var(--accent-soft);
+}
+
+/* ---- chat ---- */
+
+.chat {
+  overflow: hidden;
+}
+
+.chat-motores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.motor {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: help;
+}
+
+.motor::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--inactive);
+}
+
+.motor.ok::before {
+  background: var(--active);
+}
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-head select {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.chat-custo {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-mensagens {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 2px 6px;
+}
+
+.chat-vazio,
+.chat-fim {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.chat-fim {
+  text-align: center;
+  font-size: 12px;
+}
+
+.msg {
+  --cor: var(--muted);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--cor);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.msg.tipo-usuario {
+  --cor: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+
+.msg.tipo-sintese {
+  border-color: var(--cor);
+  box-shadow: 0 0 0 1px var(--cor) inset;
+}
+
+.msg.tipo-erro {
+  --cor: var(--danger);
+  color: var(--danger);
+}
+
+.msg.tipo-sistema {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.msg.tipo-sistema .msg-head {
+  display: none;
+}
+
+.msg-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.msg-nome {
+  font-weight: 700;
+  color: var(--cor);
+}
+
+.msg-tipo {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.msg-meta {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.msg-texto {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg-texto .md-h {
+  display: block;
+  margin-top: 4px;
+}
+
+.msg-texto code {
+  font: 12px ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  background: var(--bg);
+  padding: 0 3px;
+  border-radius: 4px;
+}
+
+.msg.pendente {
+  border-style: dashed;
+  border-left-style: solid;
+}
+
+.pensando {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.pensando i {
+  animation: pisca 1.2s infinite;
+  font-style: normal;
+}
+
+.pensando i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.pensando i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes pisca {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.chat-novo,
+.chat-intervir {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.chat-novo[hidden],
+.chat-intervir[hidden] {
+  display: none;
+}
+
+.chat-novo textarea,
+.chat-intervir textarea {
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.chat-opcoes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.chat-opcoes > :last-child {
+  margin-left: auto;
+}
+
+.chat-opcoes input[type='number'] {
+  width: 44px;
+}
+
+.chat-opcoes button {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+.chat-sugestoes {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  margin-bottom: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.12);
+  z-index: 2;
+}
+
+.chat-sugestoes[hidden] {
+  display: none;
+}
+
+.chat-sugestoes button {
+  --cor: var(--accent);
+  padding: 2px 8px;
+  font-size: 12px;
+  border-color: var(--cor);
+  color: var(--cor);
+}
+
+/* ---- paleta de personas, por motor ---- */
+
+.tpl-grupo {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px 8px 8px;
+}
+
+.tpl-grupo summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.tpl-grupo .tool {
+  margin-top: 4px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+
+.tpl-cor {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--cor);
+  flex: none;
 }
 
 .tool {
@@ -287,6 +627,47 @@ button:disabled {
 .node.active .node-rect {
   stroke: var(--active);
   stroke-width: 3;
+}
+
+/* Persona: a borda e a bolinha na cor dela; com a vez, o retângulo brilha. */
+.node.persona .node-rect {
+  stroke: var(--persona);
+  stroke-width: 2.5;
+}
+
+.node.persona .status-dot {
+  fill: var(--persona);
+}
+
+.node.falando .node-rect {
+  stroke-width: 4;
+  filter: drop-shadow(0 0 6px var(--persona, var(--accent)));
+  animation: falando 1.2s ease-in-out infinite;
+}
+
+@keyframes falando {
+  50% {
+    filter: drop-shadow(0 0 14px var(--persona, var(--accent)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node.falando .node-rect {
+    animation: none;
+  }
+}
+
+.persona-chip-bg {
+  fill: var(--surface);
+  stroke: var(--persona, var(--border));
+  stroke-width: 1;
+}
+
+.persona-chip-label {
+  font-size: 10.5px;
+  fill: var(--muted);
+  text-anchor: middle;
+  dominant-baseline: middle;
 }
 
 .node-halo {
@@ -527,11 +908,80 @@ button:disabled {
 /* ---- painel lateral ---- */
 
 .side {
-  display: grid;
-  grid-template-rows: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   border-left: 1px solid var(--border);
   background: var(--surface);
+}
+
+.side > .panel {
+  flex: 1;
+}
+
+.side > .persona-panel {
+  flex: none;
+  max-height: 55%;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.persona-panel[hidden] {
+  display: none;
+}
+
+.pp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 8px;
+}
+
+.persona-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.persona-panel select,
+.persona-panel input:not([type='color']),
+.persona-panel textarea {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.persona-panel input[type='color'] {
+  width: 100%;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.pp-prompt {
+  margin-top: 6px;
+}
+
+.pp-prompt textarea {
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.pp-status {
+  min-height: 16px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pp-status.error {
+  color: var(--danger);
 }
 
 .panel {

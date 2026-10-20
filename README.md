@@ -1,31 +1,143 @@
-# mermaid-draw
+# mermaid-ai-draw
 
-Editor visual de diagramas [Mermaid](https://mermaid.js.org/), minimalista, com drag and drop e **fine-grained reactivity**: cada retângulo e cada seta é uma unidade independente, que pode ser criada, editada ou removida sozinha — pelo canvas ou via `curl` — sem reenviar nem redesenhar o diagrama inteiro.
+Fork do [mermaid-draw](https://github.com/lucasisabelf/mermaid-draw) em que **cada retângulo é uma persona de IA** e **as setas dizem quem responde a quem**. Na lateral esquerda há um **chat**. Você lança um assunto e escolhe o que quer:
+- acompanhar as personas debatendo;
+- receber, no fim, **uma resposta polida** (a síntese);
+- entregar uma **tarefa**, que a orquestradora divide entre as personas, como num sistema de vários agentes.
 
-> 🚧 Projeto em estágio inicial.
+É a terceira vertente do editor. O [mermaid-draw](https://github.com/lucasisabelf/mermaid-draw) é o editor puro, e no [mermaid-docker-draw](https://github.com/lucasisabelf/mermaid-docker-draw) cada retângulo é um container.
 
-## O que é e o que não é
+```mermaid
+flowchart LR
+    otimista("Otimista") --> cetica("Cética")
+    cetica --> moderadora("Moderadora")
+    moderadora --> otimista
+```
 
-**É:**
+> A Otimista abre, a Cética responde a ela, a Moderadora responde à Cética e, na rodada seguinte, a Otimista responde à Moderadora. No modo "Debater e responder", a Moderadora escreve a síntese no fim.
 
-- **Um editor visual de fluxogramas simples:** retângulos e setas arrastados num canvas, que viram código Mermaid limpo e legível, para colar num README, numa wiki ou no GitHub.
-- **Um desenho com posições suas:** você coloca cada retângulo onde quiser, e as posições ficam no próprio código Mermaid (em comentários `%% @pos`). O código sozinho reconstrói o desenho.
-- **Ida e volta entre código e canvas:** dá para editar o código no painel ao lado, e o canvas acompanha.
-- **Controlável por API:** cada retângulo e cada seta é um recurso HTTP. Um script ou um `curl` pode criar, mudar o texto ou marcar uma etapa como ativa, e todas as abas abertas veem a mudança na hora.
-- **Um acompanhamento leve de processos:** cada etapa pode estar ativa ou inativa e ter um responsável.
-- **Vários diagramas:** o menu ☰ cria, renomeia, duplica, exporta, importa e apaga diagramas, e a busca encontra um pelo nome.
-- **Comunicação visível entre etapas:** uma seta pode ficar animada, com o tracejado correndo, ou receber um "pulso", em que uma mensagem percorre a seta da origem até o destino. Um script pode mandar esses pulsos pela API para mostrar, ao vivo, algo passando de uma etapa para outra.
-- **Uma ferramenta local:** roda com `npm run dev` e guarda cada diagrama numa pasta (`diagrams/<nome>/diagram.json`).
+## Três motores, na mesma conversa
 
-**Não é:**
+Cada persona escolhe o **motor** que lhe dá voz, e personas de motores diferentes conversam entre si:
 
-- **Um editor completo de Mermaid.** Só entende `flowchart` com retângulos arredondados (`n1("texto")`) e setas `-->`, com texto opcional. Outros tipos de diagrama (sequência, classes, Gantt, ER…), outras formas, subgráficos e estilos livres não são suportados: o painel de código aponta essas linhas como não reconhecidas.
-- **Um executor de fluxos.** O desenho não roda nada; o "ativo" é só uma marcação visual. Para cada retângulo virar um container Docker e cada seta um gatilho, existe o fork [mermaid-docker-draw](https://github.com/lucasisabelf/mermaid-docker-draw).
-- **Um serviço para a internet.** Não há login, contas nem controle de acesso: qualquer um que alcance o servidor lê e altera o diagrama pela API. Use só na sua máquina ou numa rede confiável.
-- **Colaboração com resolução de conflitos.** Várias abas ficam sincronizadas, mas, se duas pessoas mudarem o mesmo elemento ao mesmo tempo, vale a última mudança. Não há CRDT nem histórico de versões além do `rev`.
-- **Um layout automático.** O canvas não reorganiza o desenho sozinho. O preview usa o layout próprio do Mermaid, que é independente das suas posições.
-- **Um banco de diagramas compartilhado.** Os diagramas são pastas no disco do servidor, sem permissões por diagrama nem histórico de versões. Apagar só move a pasta para `diagrams/.removidos/`.
-- **Pronto para produção.** A API vive dentro do servidor do Vite (`npm run dev` ou `npm run preview`): não existe um servidor separado para publicar.
+| Motor | Quem fala | Precisa de | Custo |
+|---|---|---|---|
+| **MCP · Claude Code** | o Claude Code conectado ao servidor MCP do app (`/mcp`) | só o Claude Code aberto | o do seu plano do Claude Code |
+| **Ollama · local** | um modelo local no [Ollama](https://ollama.com) (ex.: `qwen2.5:3b`) | o Ollama instalado e o modelo baixado | grátis (roda na sua máquina) |
+| **API · Claude** | a API da Anthropic (`claude-opus-5-5`, `claude-sonnet-5-5`…) | `ANTHROPIC_API_KEY` (ou `ant auth login`) | por token: o chat mostra quanto custou |
+
+O topo do chat mostra quais motores estão disponíveis agora. Uma persona cujo motor está fora do ar vira uma mensagem de erro no chat, e o resto da conversa continua.
+
+### MCP: o Claude Code dá voz às personas
+
+O servidor expõe um MCP em `http://localhost:5190/mcp`, e o `.mcp.json` deste projeto já aponta para ele. Abra o Claude Code na pasta do projeto, com o servidor rodando, e peça algo como:
+
+> Comece um debate no diagrama "Debate: abrir uma cafeteria" sobre X e dê voz às personas.
+
+As ferramentas são:
+
+| Ferramenta | Para quê |
+|---|---|
+| `listar_diagramas`, `ver_personas` | ver os grupos, as personas (motor, modelo, papel) e as setas |
+| `iniciar_conversa` | começar: `assunto`, `modo` (`debate`, `resposta`, `tarefa`) e `rodadas` |
+| `proxima_vez` | os turnos pendentes das personas MCP (e espera por um novo, para atender o que você escrever no chat do navegador) |
+| `responder` | a fala da persona; numa tarefa, também `delegacoes: [{para, tarefa}]` |
+| `ver_conversa`, `sintetizar`, `parar` | acompanhar, pedir a resposta final, parar |
+
+Cada turno traz o prompt da persona, o contexto da conversa e o modelo sugerido (`subagente_sugerido`). Delegações em paralelo chegam juntas, e o Claude Code pode atender cada uma com um subagente.
+
+### Ollama: modelos locais
+
+Instale no **Windows** (no WSL ele não enxerga toda a memória) e baixe um modelo pequeno:
+
+```powershell
+winget install Ollama.Ollama
+ollama pull qwen2.5:3b
+```
+
+O servidor procura o Ollama em `OLLAMA_URL`, em `localhost:11434` e, no WSL, no Windows (o gateway da rede). Num notebook sem GPU dedicada, modelos de 3 a 4B rodam a uns 6 a 12 tokens por segundo, e o app atende um pedido por vez. O chat mostra os tokens por segundo de cada fala.
+
+### API da Anthropic
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...   # ou: ant auth login
+npm run dev
+```
+
+O texto chega aos poucos (streaming), o prompt da persona fica em cache entre as vezes, e o chat soma o custo da conversa.
+
+## As personas
+
+Cada retângulo tem um `.md` em `diagrams/<diagrama>/personas/<id>.md`. O texto é o prompt (quem ela é), e o yaml traz as opções. O nome é o texto do retângulo.
+
+````md
+# Cética
+
+Você é a Cética do grupo. Questiona premissas, procura riscos…
+
+```yaml
+motor: mcp              # mcp · ollama · api
+modelo: claude-opus-5-5 # no ollama, ex.: qwen2.5:3b
+esforco: medium         # low · medium · high · xhigh · max (motor api)
+papel: debatedora       # debatedora · moderadora (sintetiza) · orquestradora (delega) · executora
+cor: "#e11d48"
+```
+````
+
+- **Painel da persona:** à direita, ao selecionar o retângulo, edita tudo isso e grava sozinho.
+- **Paleta:** na aba **Componentes**, as personas ficam agrupadas por motor. O mesmo papel (Otimista, Cética, Especialista, Moderadora, Orquestradora, Pesquisadora, Redatora, Revisora) pode nascer em qualquer motor.
+- **Templates:** os papéis ficam em [`templates/*.md`](templates), e o modelo padrão de cada motor está no yaml de cada um (`modelos: {mcp, ollama, api}`). Editar o arquivo muda o padrão.
+
+## Os modos
+
+| Modo | O que acontece |
+|---|---|
+| **Debater** | N rodadas pelas setas. Quem não tem seta chegando abre a rodada; cada persona fala uma vez por rodada e responde a quem aponta para ela |
+| **Debater e responder** | o debate e, no fim, a **síntese**: a resposta polida, pela persona de papel *moderadora* (ou pela última que falou) |
+| **Tarefa** | a *orquestradora* recebe a tarefa e delega pelas setas: no texto, com linhas `DELEGAR <persona>: <tarefa>`, ou com `delegacoes` no MCP |
+
+No modo tarefa, as delegadas trabalham **em paralelo**, cada uma no seu motor. Uma delegada que também tem setas saindo pode delegar adiante. Quem delegou recebe os resultados e consolida a entrega final. Uma delegação para quem não está ao alcance das setas é recusada, com aviso no chat.
+
+Durante a conversa:
+- **Intervir:** escreva no chat. Com **@nome** (o chat sugere as personas), ela responde a seguir; depois do fim, alguém responde (a mencionada, a moderadora ou a última que falou).
+- **Sintetizar:** pede a resposta polida agora, depois da vez em andamento.
+- **Parar:** cancela os turnos pendentes.
+
+No canvas, quem tem a vez **brilha**, e a "mensagem" percorre a seta de quem ela responde (ou da delegação). As conversas ficam em `diagrams/<diagrama>/conversas/`, e o seletor do chat abre as anteriores.
+
+## Exemplos
+
+Importe pelo menu ☰ → **Importar**:
+- [`examples/debate-cafeteria.zip`](examples/debate-cafeteria.zip): Otimista → Cética → Moderadora → Otimista, para debater e responder.
+- [`examples/tarefa-lancamento.zip`](examples/tarefa-lancamento.zip): a Orquestradora delega para Pesquisadora, Redatora e Revisora, e a Redatora também passa para a Revisora.
+- [`examples/debate-misto.zip`](examples/debate-misto.zip): os três motores no mesmo debate (Otimista no Ollama, Cética na API e Moderadora no MCP). Sem o Ollama ou sem a chave, a persona daquele motor aparece como erro no chat, e as outras continuam.
+
+Os `.zip` levam as personas junto.
+
+## API das personas e conversas
+
+```bash
+D=localhost:5190/api/d/debate-abrir-uma-cafeteria
+curl localhost:5190/api/templates                       # papéis e motores
+curl localhost:5190/api/motores                         # disponível? {nome, ok, detalhe, modelos}
+curl -X POST $D/templates/cetica -d '{"motor":"ollama","x":300,"y":200}'
+curl $D/personas/n2                                     # {markdown, persona}
+curl -X PUT --data-binary @n2.md $D/personas/n2
+curl -X POST $D/conversas -d '{"assunto":"…","modo":"resposta","rodadas":2}'
+curl -X POST $D/conversas/<id>/mensagens -d '{"texto":"@Cética e o aluguel?"}'
+curl -X POST $D/conversas/<id>/sintetizar
+curl -X POST $D/conversas/<id>/parar
+```
+
+O SSE do diagrama (`/api/d/<slug>/events`) também manda os eventos do chat: `chat.inicio`, `chat.turno`, `chat.delta`, `chat.mensagem`, `chat.delegacao`, `chat.fim` e `persona.atualizada`.
+
+---
+
+# O editor (do mermaid-draw)
+
+Tudo abaixo vem do [mermaid-draw](https://github.com/lucasisabelf/mermaid-draw) e continua valendo: canvas com zoom e "ver tudo", código Mermaid de ida e volta, vários diagramas, API granular, exportar SVG e PNG.
+
+> **Segurança:** como o mermaid-draw, é uma ferramenta local, sem login. Quem alcança o servidor lê e altera os diagramas, e pode conversar com as personas, o que gasta a sua chave da API. Use só na sua máquina ou numa rede confiável.
 
 ## Fine-grained reactivity
 
@@ -64,10 +176,10 @@ flowchart LR
 
 ```bash
 npm install
-npm run dev
+npm run dev -- --port 5190
 ```
 
-Abra o endereço que o Vite mostrar (normalmente http://localhost:5173; se a porta estiver ocupada, ele usa a próxima).
+Abra http://localhost:5190 (o `.mcp.json` aponta o Claude Code para esta porta).
 
 | Ação | Como fazer |
 |---|---|

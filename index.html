@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>mermaid-draw</title>
+    <title>mermaid-ai-draw</title>
   </head>
   <body>
     <header class="topbar">
       <div class="brand">
         <button id="btn-menu" type="button" class="menu-btn" aria-label="Diagramas" aria-controls="menu" title="Diagramas">☰</button>
-        <h1><span id="diagram-name"></span><small>mermaid-draw</small></h1>
+        <h1><span id="diagram-name"></span><small>mermaid-ai-draw</small></h1>
       </div>
       <div class="actions">
         <button id="btn-svg" type="button" title="Baixa o desenho do canvas como SVG">Exportar SVG</button>
@@ -20,16 +20,54 @@
     </header>
     <main class="layout">
       <aside class="palette">
-        <div class="panel-title">Componentes</div>
-        <div class="tool" role="button" tabindex="0" draggable="true" data-tool="rect" title="Arraste para o canvas">
-          <svg viewBox="0 0 40 24" aria-hidden="true"><rect x="2" y="3" width="36" height="18" rx="6" /></svg>
-          <span>Retângulo</span>
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab active" data-left-tab="chat" role="tab">Chat</button>
+          <button type="button" class="tab" data-left-tab="componentes" role="tab">Componentes</button>
         </div>
-        <div class="tool" role="button" tabindex="0" draggable="true" data-tool="arrow" title="Arraste até um retângulo ou clique para o modo seta">
-          <svg viewBox="0 0 40 24" aria-hidden="true"><line x1="4" y1="12" x2="30" y2="12" /><path d="M28 6 L37 12 L28 18 Z" /></svg>
-          <span>Seta</span>
-        </div>
-        <p class="hint" id="hint"></p>
+        <section class="left-pane chat" data-pane="chat">
+          <div class="chat-motores" id="chat-motores" aria-label="Motores"></div>
+          <div class="chat-head">
+            <select id="chat-historico" title="Conversas deste diagrama" aria-label="Conversas"></select>
+            <span class="chat-custo" id="chat-custo" title="Custo desta conversa (motor API)"></span>
+          </div>
+          <div class="chat-mensagens" id="chat-mensagens" aria-live="polite"></div>
+          <form class="chat-novo" id="chat-novo">
+            <textarea id="chat-assunto" rows="3" placeholder="Assunto, pergunta ou tarefa para as personas…" aria-label="Assunto"></textarea>
+            <div class="chat-opcoes">
+              <select id="chat-modo" aria-label="Modo">
+                <option value="debate">Debater</option>
+                <option value="resposta">Debater e responder</option>
+                <option value="tarefa">Tarefa (delegar)</option>
+              </select>
+              <label title="Rodadas do debate">rodadas <input id="chat-rodadas" type="number" min="1" max="10" value="2" /></label>
+              <button type="submit" class="primary">Começar</button>
+            </div>
+          </form>
+          <form class="chat-intervir" id="chat-intervir" hidden>
+            <div class="chat-sugestoes" id="chat-sugestoes" hidden></div>
+            <textarea id="chat-texto" rows="2" placeholder="Fale com o grupo (@nome chama alguém)…" aria-label="Mensagem"></textarea>
+            <div class="chat-opcoes">
+              <button type="button" id="chat-nova" title="Começar outra conversa">Nova</button>
+              <button type="button" id="chat-sintetizar" title="Pedir a resposta final polida agora">Sintetizar</button>
+              <button type="button" id="chat-parar" class="danger">Parar</button>
+              <button type="submit" class="primary">Enviar</button>
+            </div>
+          </form>
+        </section>
+        <section class="left-pane" data-pane="componentes" hidden>
+          <div class="panel-title">Componentes</div>
+          <div class="tool" role="button" tabindex="0" draggable="true" data-tool="rect" title="Arraste para o canvas">
+            <svg viewBox="0 0 40 24" aria-hidden="true"><rect x="2" y="3" width="36" height="18" rx="6" /></svg>
+            <span>Retângulo</span>
+          </div>
+          <div class="tool" role="button" tabindex="0" draggable="true" data-tool="arrow" title="Arraste até um retângulo ou clique para o modo seta">
+            <svg viewBox="0 0 40 24" aria-hidden="true"><line x1="4" y1="12" x2="30" y2="12" /><path d="M28 6 L37 12 L28 18 Z" /></svg>
+            <span>Seta</span>
+          </div>
+          <div class="panel-title palette-section">Personas</div>
+          <div id="templates" class="templates"></div>
+          <p class="hint" id="hint"></p>
+        </section>
       </aside>
       <section class="canvas" id="canvas">
           <div class="canvas-tools" role="toolbar" aria-label="Ferramentas do canvas">
@@ -49,6 +87,38 @@
           </div>
         </section>
       <aside class="side">
+        <div class="panel persona-panel" id="persona-panel" hidden>
+          <div class="panel-title" id="pp-titulo">Persona</div>
+          <div class="pp-grid">
+            <label>Motor
+              <select id="pp-motor">
+                <option value="mcp">MCP · Claude Code</option>
+                <option value="ollama">Ollama · local</option>
+                <option value="api">API · Claude</option>
+              </select>
+            </label>
+            <label>Modelo <input id="pp-modelo" list="pp-modelos" spellcheck="false" /></label>
+            <datalist id="pp-modelos"></datalist>
+            <label>Papel
+              <select id="pp-papel">
+                <option value="debatedora">debatedora</option>
+                <option value="moderadora">moderadora (sintetiza)</option>
+                <option value="orquestradora">orquestradora (delega)</option>
+                <option value="executora">executora</option>
+              </select>
+            </label>
+            <label>Esforço
+              <select id="pp-esforco">
+                <option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option>
+              </select>
+            </label>
+            <label class="pp-cor">Cor <input id="pp-cor" type="color" /></label>
+          </div>
+          <label class="pp-prompt">Prompt (quem ela é)
+            <textarea id="pp-prompt" rows="6" spellcheck="false"></textarea>
+          </label>
+          <div class="pp-status" id="pp-status"></div>
+        </div>
         <div class="panel">
           <div class="panel-title">Código Mermaid</div>
           <textarea id="code" spellcheck="false" aria-label="Código Mermaid"></textarea>

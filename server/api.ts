@@ -37,6 +37,8 @@ type Stored = { rev: number; diagram: Diagram | null };
 export interface ApiOptions {
   /** Chamado depois de cada mudança no diagrama (ex.: para o menu de diagramas atualizar a lista). */
   onChange?: () => void;
+  /** Chamado quando um retângulo é removido (ex.: para guardar a persona dele). */
+  onNodeRemoved?: (id: string) => void;
 }
 
 export function createApi(filePath: string, options: ApiOptions = {}) {
@@ -157,6 +159,7 @@ export function createApi(filePath: string, options: ApiOptions = {}) {
           }
           if (method === 'DELETE') {
             const ev = commit(source, (d) => ops.removeNode(d, id));
+            options.onNodeRemoved?.(id);
             return send(res, 200, ev);
           }
         }
@@ -216,6 +219,12 @@ export function createApi(filePath: string, options: ApiOptions = {}) {
 
   return {
     handler,
+    /** O diagrama atual (vazio se ainda não há). */
+    diagram,
+    /** Executa uma operação, salva e avisa os navegadores (como as rotas). */
+    commit,
+    /** Manda um evento para os navegadores deste diagrama (sem mudar o rev). */
+    broadcast,
     /** Resumo para a lista de diagramas. */
     info() {
       return { nodes: diagram().nodes.length, edges: diagram().edges.length, rev: state.rev };

@@ -1,7 +1,9 @@
 import mermaid from 'mermaid';
 import './style.css';
 import { Canvas, DND_TYPE, type Tool } from './canvas';
-import { DIAGRAM } from './diagrams';
+import { ChatPanel, type PersonaLite } from './chat';
+import { API, DIAGRAM } from './diagrams';
+import { PersonaPanel, type PersonaView } from './personapanel';
 import { downloadPng, downloadSvg } from './export';
 import { DiagramMenu } from './menu';
 import { parseMermaid, toMermaid, type Diagram } from './model';
@@ -101,9 +103,57 @@ function updateHint() {
   document.querySelector('[data-tool="arrow"]')!.classList.toggle('active', store.mode === 'arrow');
 }
 
+// ---- personas: cada retângulo é uma (cor e selo no canvas, painel à direita) ----
+
+const personas = new Map<string, PersonaView>();
+const MOTOR_CURTO: Record<string, string> = { mcp: 'MCP', ollama: 'Ollama', api: 'API' };
+/** "claude-opus-5-5" → "opus 5.5"; "qwen2.5:3b" fica como está. */
+const modeloCurto = (m: string) => m.replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-(\d+)$/, ' $1');
+canvas.personaDe = (id) => {
+  const p = personas.get(id);
+  return p && { cor: p.cor, selo: `${MOTOR_CURTO[p.motor]} · ${modeloCurto(p.modelo)}` };
+};
+const atualizarPersona = (p: PersonaView) => {
+  personas.set(p.id, p);
+  canvas.redesenhar(p.id);
+  personaPanel.atualizada(p);
+};
+async function carregarPersonas() {
+  try {
+    const lista = (await fetch(`${API}/personas`).then((r) => r.json())) as PersonaView[];
+    personas.clear();
+    for (const p of lista) personas.set(p.id, p);
+    canvas.renderAll();
+  } catch {}
+}
+const personaPanel = new PersonaPanel(API, store, (p) => atualizarPersona(p));
+// Retângulo novo (de outra aba, do código ou da paleta): busca a persona dele.
+store.subscribe((change) => {
+  if (change.source !== 'view' && change.event && ['node.added', 'diagram.replaced'].includes(change.event.type)) void carregarPersonasLogo();
+});
+const carregarPersonasLogo = debounce(() => void carregarPersonas(), 250);
+
+const chat = new ChatPanel({
+  api: API,
+  personas: () => store.diagram.nodes.map((n): PersonaLite => {
+    const p = personas.get(n.id);
+    return { id: n.id, nome: n.text, cor: p?.cor ?? '#64748b', motor: p?.motor ?? 'mcp', modelo: p?.modelo ?? '' };
+  }),
+  falando: (id, on) => canvas.setFalando(id, on),
+  pulso: (aresta, rotulo) => canvas.pulseEdge(aresta, rotulo),
+});
+
 // ---- sincronização com o servidor (API em server/api.ts) -------------------
 
-const sync = new ServerSync(store, (msg) => canvas.pulseEdge(msg.id, msg.label));
+const sync = new ServerSync(
+  store,
+  (msg) => canvas.pulseEdge(msg.id, msg.label),
+  (msg) => {
+    if (msg.type === 'persona.atualizada') atualizarPersona(msg.persona as PersonaView);
+    else chat.receber(msg);
+  },
+);
+void carregarPersonas();
 new DiagramMenu();
 
 /** Atualiza o que depende do diagrama inteiro: painel de código, preview e cópia local. */
@@ -169,11 +219,76 @@ for (const tool of document.querySelectorAll<HTMLElement>('[data-tool]')) {
   });
 }
 
+// ---- abas da esquerda: Chat | Componentes -----------------------------------
+
+for (const b of document.querySelectorAll<HTMLButtonElement>('[data-left-tab]')) {
+  b.addEventListener('click', () => {
+    for (const x of document.querySelectorAll<HTMLButtonElement>('[data-left-tab]')) x.classList.toggle('active', x === b);
+    for (const pane of document.querySelectorAll<HTMLElement>('[data-pane]')) pane.hidden = pane.dataset.pane !== b.dataset.leftTab;
+  });
+}
+
+// ---- personas da paleta: o mesmo papel em cada motor ----------------------------
+
+async function criarDoTemplate(motor: string, papel: string, at?: { x: number; y: number }) {
+  const r = $('#canvas').getBoundingClientRect();
+  const pos = at ?? { x: r.width / 2 + (Math.random() - 0.5) * 120, y: r.height / 2 + (Math.random() - 0.5) * 120 };
+  const res = await fetch(`${API}/templates/${encodeURIComponent(papel)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Client-Id': sync.clientId },
+    body: JSON.stringify({ motor, x: Math.round(pos.x), y: Math.round(pos.y) }),
+  });
+  const json = await res.json();
+  if (!res.ok) return void (hintEl.textContent = json.error ?? 'Não consegui criar a persona.');
+  personas.set(json.persona.id, json.persona);
+  // O retângulo chega pelo SSE; quando chegar, fica selecionado.
+  const id = json.node.id as string;
+  const selecionar = () => (store.node(id) ? store.select({ kind: 'node', id }) : setTimeout(selecionar, 50));
+  selecionar();
+}
+canvas.onTemplate = (motor, papel, at) => void criarDoTemplate(motor, papel, at);
+
+fetch('/api/templates')
+  .then((r) => r.json())
+  .then((t: { motores: { nome: string; titulo: string; descricao: string }[]; papeis: { nome: string; titulo: string; descricao: string; cor: string; modelos: Record<string, string> }[] }) => {
+    const host = $('#templates');
+    for (const m of t.motores) {
+      const grupo = Object.assign(document.createElement('details'), { className: 'tpl-grupo', open: m.nome === 'mcp' });
+      grupo.append(Object.assign(document.createElement('summary'), { textContent: m.titulo, title: m.descricao }));
+      for (const papel of t.papeis) {
+        const tool = Object.assign(document.createElement('div'), {
+          className: 'tool template',
+          role: 'button',
+          tabIndex: 0,
+          draggable: true,
+          title: `${papel.descricao}\n${m.titulo} · ${papel.modelos[m.nome]}`,
+        });
+        tool.style.setProperty('--cor', papel.cor);
+        tool.innerHTML = '<span class="tpl-cor"></span><span class="tool-label"></span>';
+        tool.querySelector('.tool-label')!.textContent = papel.titulo;
+        tool.addEventListener('dragstart', (e) => {
+          e.dataTransfer!.setData(DND_TYPE, `tpl:${m.nome}:${papel.nome}`);
+          e.dataTransfer!.effectAllowed = 'copy';
+        });
+        tool.addEventListener('click', () => void criarDoTemplate(m.nome, papel.nome));
+        tool.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            void criarDoTemplate(m.nome, papel.nome);
+          }
+        });
+        grupo.append(tool);
+      }
+      host.append(grupo);
+    }
+  })
+  .catch(() => ($('#templates').textContent = 'Templates indisponíveis (servidor fora do ar).'));
+
 // ---- teclado e barra superior ----------------------------------------------
 
 document.addEventListener('keydown', (e) => {
   const t = e.target as HTMLElement;
-  if (t.matches('input, textarea')) return;
+  if (t.matches('input, textarea, select')) return;
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
     store.removeSelected();
