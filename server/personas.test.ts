@@ -119,9 +119,11 @@ describe('parsePersona', () => {
     expect(parsePersona('n7', renderPersona(p), 'Memória')).toEqual(p);
     expect(parsePersona('n7', 'x\n\n```yaml\nmemoria: true\nescuta: todas\n```\n', 'M').escuta).toBe('todas');
     expect(p.resumoPara).toBe('todas');
+    expect(p.curadoria).toBe(false);
+    expect(parsePersona('n7', 'x\n\n```yaml\nmemoria: true\ncuradoria: true\n```\n', 'M').curadoria).toBe(true);
     expect(parsePersona('n7', 'x\n\n```yaml\nmemoria: true\nresumoPara: [n1]\n```\n', 'M').resumoPara).toEqual(['n1']);
     expect(parsePersona('n7', 'x\n\n```yaml\nmemoria: true\nresumoPara: []\n```\n', 'M').resumoPara).toEqual([]);
-    for (const ruim of ['memoria: sim', 'escuta: algumas', 'escuta: [../x]', 'quando: sempre', 'limite: 10', 'resumoPara: alguns']) {
+    for (const ruim of ['memoria: sim', 'escuta: algumas', 'escuta: [../x]', 'quando: sempre', 'limite: 10', 'resumoPara: alguns', 'curadoria: talvez']) {
       expect(() => parsePersona('n7', `x\n\n\`\`\`yaml\n${ruim}\n\`\`\`\n`, 'X'), ruim).toThrow(OpError);
     }
   });

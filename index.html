@@ -125,6 +125,10 @@
               </label>
               <label>Tamanho (caracteres) <input id="pp-limite" type="number" min="200" step="100" value="4000" /></label>
             </div>
+            <label class="pp-inicio" title="Cada atualização vira uma proposta no chat, para você aceitar ou descartar antes de gravar.">
+              <input type="checkbox" id="pp-curadoria" /> Curadoria (eu aprovo antes de gravar)
+            </label>
+            <button type="button" id="pp-palacio">Abrir palácio da memória</button>
           </div>
           <div class="pp-saida" id="pp-humana-box" hidden>
             <label>Prazo (min) <input id="pp-prazo" type="number" min="1" step="1" placeholder="sem prazo" /></label>
@@ -192,6 +196,39 @@
           </div>
           <p class="td-ajuda">A persona de saída preenche este markdown no fim da conversa. Troque cada <code>{{marcação}}</code> pelo que ela deve escrever. Só o template é gravado: a persona não muda.</p>
           <textarea id="td-texto" spellcheck="false" aria-label="Template de saída"></textarea>
+        </dialog>
+        <dialog class="template-dialog palacio" id="palacio-dialog" aria-labelledby="pa-titulo">
+          <div class="td-topo">
+            <div class="panel-title" id="pa-titulo">Palácio da memória</div>
+            <span class="pp-status" id="pa-status"></span>
+            <button type="button" id="pa-fechar">Fechar</button>
+          </div>
+          <div class="tabs" role="tablist">
+            <button type="button" class="tab active" data-pa-aba="salas" role="tab">Salas</button>
+            <button type="button" class="tab" data-pa-aba="historico" role="tab">Histórico</button>
+            <button type="button" class="tab" data-pa-aba="markdown" role="tab">Markdown</button>
+          </div>
+          <div class="pa-pane" data-pa-pane="salas">
+            <div class="pa-filtros">
+              <input id="pa-busca" type="search" placeholder="Buscar na memória…" aria-label="Buscar" />
+              <select id="pa-persona" aria-label="Persona"><option value="">todas as personas</option></select>
+              <select id="pa-conversa" aria-label="Conversa"><option value="">todas as conversas</option></select>
+            </div>
+            <div class="pa-salas" id="pa-salas"></div>
+          </div>
+          <div class="pa-pane" data-pa-pane="historico" hidden>
+            <div class="pa-historico">
+              <ul id="pa-versoes"></ul>
+              <pre id="pa-versao"></pre>
+            </div>
+          </div>
+          <div class="pa-pane" data-pa-pane="markdown" hidden>
+            <textarea id="pa-md" spellcheck="false" aria-label="memoria.md"></textarea>
+            <div class="chat-opcoes">
+              <button type="button" class="danger" id="pa-zerar">Zerar memória</button>
+              <button type="button" class="primary" id="pa-salvar">Salvar</button>
+            </div>
+          </div>
         </dialog>
         <div class="panel">
           <div class="panel-title">Código Mermaid</div>

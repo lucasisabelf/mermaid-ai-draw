@@ -21,6 +21,9 @@ export interface MensagemView {
   arquivo?: string;
   /** Pós-fluxo: a outra conversa (a disparada, ou a de origem). */
   link?: { diagrama: string; conversa: string };
+  /** Curadoria: a memória proposta e o que o usuário decidiu. */
+  proposta?: string;
+  decisao?: 'aceita' | 'descartada';
   uso?: { entrada?: number; saida?: number; custo?: number; tokensPorSegundo?: number };
 }
 
@@ -87,6 +90,10 @@ export function aplicar(s: ChatState, ev: any): ChatState {
       const mensagens = [...s.mensagens, m];
       const status = m.tipo === 'usuario' && s.status !== 'rodando' ? 'rodando' : s.status;
       return { ...s, status, mensagens, pendentes: s.pendentes.filter((p) => p.turno !== m.turno), custo: somaCusto(mensagens) };
+    }
+    case 'chat.mensagem.atualizada': {
+      const m = ev.mensagem as MensagemView;
+      return { ...s, mensagens: s.mensagens.map((x) => (x.id === m.id ? m : x)) };
     }
     case 'chat.fim':
       return { ...s, status: ev.status, resposta: ev.resposta ?? s.resposta, pendentes: [], espera: undefined };

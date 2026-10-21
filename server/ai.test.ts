@@ -240,6 +240,53 @@ describe('personas e templates pela API', () => {
     expect(await ferramenta('recordar', { diagrama: slug, pergunta: 'aluguel' })).toEqual({ itens: [{ sala: 'Fatos', texto: 'Aluguel no centro é caro (Cética · c1)' }] });
   });
 
+  it('palácio: ler, editar e zerar a memória, histórico, decidir proposta e zip só com ?memoria=1', async () => {
+    const { slug, ids } = await montar('Palácio', [['otimista', 'ollama'], ['moderadora', 'ollama']], []);
+    const md = (await call('GET', `/d/${slug}/personas/${ids[1]}`)).json.markdown as string;
+    await call('PUT', `/d/${slug}/personas/${ids[1]}`, md.replace('```yaml\n', '```yaml\nmemoria: true\ncuradoria: true\n'));
+
+    // Sem memória ainda: o modelo das salas.
+    const vazia = (await call('GET', `/d/${slug}/memoria`)).json;
+    expect(vazia).toMatchObject({ existe: false, itens: 0 });
+    expect(vazia.md).toContain('## Decisões');
+
+    // Editar à mão grava o memoria.md e um snapshot no histórico.
+    expect((await call('PUT', `/d/${slug}/memoria`, '# Memória\n\n## Fatos\n- aluguel caro (C · c0)\n')).status).toBe(200);
+    expect((await call('GET', `/d/${slug}/memoria`)).json).toMatchObject({ existe: true, itens: 1 });
+    const hist = (await call('GET', `/d/${slug}/memoria/historico`)).json;
+    expect(hist).toHaveLength(1);
+    expect(hist[0]).toMatchObject({ conversa: 'manual', itens: 1 });
+    expect((await call('GET', `/d/${slug}/memoria/historico/${hist[0].id}`)).text).toContain('aluguel caro');
+    expect((await call('GET', `/d/${slug}/memoria/historico/..%2Fx`)).status).toBe(404);
+    expect((await call('PUT', `/d/${slug}/memoria`, '   ')).status).toBe(400);
+
+    // Curadoria: a conversa propõe; a rota aceita.
+    const id = (await call('POST', `/d/${slug}/conversas`, { assunto: 'x', modo: 'debate', rodadas: 1 })).json.id;
+    for (let i = 0; i < 50 && (await call('GET', `/d/${slug}/conversas/${id}`)).json.status !== 'terminada'; i++) await new Promise((x) => setTimeout(x, 20));
+    const prop = (await call('GET', `/d/${slug}/conversas/${id}`)).json.mensagens.at(-1);
+    expect(prop).toMatchObject({ tipo: 'memoria', proposta: 'Moderadora (ollama)' });
+    expect((await call('GET', `/d/${slug}/memoria`)).json.md).toContain('aluguel caro');
+    expect((await call('POST', `/d/${slug}/conversas/${id}/memoria`, { mensagem: prop.id, acao: 'aceitar' })).status).toBe(200);
+    expect((await call('GET', `/d/${slug}/memoria`)).json.md).toBe('Moderadora (ollama)\n');
+    expect((await call('GET', `/d/${slug}/memoria/historico`)).json).toHaveLength(2);
+    expect((await call('POST', `/d/${slug}/conversas/${id}/memoria`, { mensagem: prop.id, acao: 'aceitar' })).status).toBe(409);
+
+    // O zip só leva a memória com ?memoria=1; o import lê; duplicar não copia.
+    const zipSem = await fetch(`${base}/api/diagrams/${slug}/export`).then((x) => x.arrayBuffer());
+    const semMem = unzipSync(new Uint8Array(zipSem));
+    expect(semMem['memoria.md']).toBeUndefined();
+    const comMem = await fetch(`${base}/api/diagrams/${slug}/export?memoria=1`).then((x) => x.arrayBuffer());
+    expect(strFromU8(unzipSync(new Uint8Array(comMem))['memoria.md'])).toBe('Moderadora (ollama)\n');
+    const imp = await fetch(`${base}/api/diagrams/import?name=Copia`, { method: 'POST', body: Buffer.from(comMem) }).then((x) => x.json());
+    expect((await call('GET', `/d/${imp.slug}/memoria`)).json.md).toBe('Moderadora (ollama)\n');
+    const dup = (await call('POST', `/diagrams/${slug}/duplicate`)).json.slug;
+    expect((await call('GET', `/d/${dup}/memoria`)).json.existe).toBe(false);
+
+    // Zerar: some (vai para .removidos/).
+    expect((await call('DELETE', `/d/${slug}/memoria`)).status).toBe(200);
+    expect((await call('GET', `/d/${slug}/memoria`)).json.existe).toBe(false);
+  });
+
   it('mostra o status dos motores', async () => {
     const r = await call('GET', '/motores');
     expect(r.json.map((m: any) => [m.nome, m.ok])).toEqual([

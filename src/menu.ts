@@ -136,6 +136,7 @@ export class DiagramMenu {
         ['Renomear', () => this.rename(d), ''],
         ['Duplicar', () => this.duplicate(d), ''],
         ['Exportar .zip', () => this.download(`/api/diagrams/${enc}/export`), ''],
+        ['Exportar .zip com memória', () => this.download(`/api/diagrams/${enc}/export?memoria=1`), ''],
         ['Exportar .mmd', () => this.download(`/api/diagrams/${enc}/export?format=mmd`), ''],
         ['Apagar', () => this.remove(d), 'danger'],
       ] as const) {

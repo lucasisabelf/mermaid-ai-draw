@@ -3,6 +3,7 @@ import './style.css';
 import { Canvas, DND_TYPE, type Tool } from './canvas';
 import { ChatPanel, type PersonaLite } from './chat';
 import { API, DIAGRAM } from './diagrams';
+import { PalacioDialog } from './palaciopanel';
 import { PersonaPanel, type PersonaView } from './personapanel';
 import { downloadPng, downloadSvg } from './export';
 import { DiagramMenu } from './menu';
@@ -111,8 +112,7 @@ const MOTOR_CURTO: Record<string, string> = { mcp: 'MCP', ollama: 'Ollama', api:
 const modeloCurto = (m: string) => m.replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-(\d+)$/, ' $1');
 canvas.personaDe = (id) => {
   const p = personas.get(id);
-  const escuta = p?.memoria ? (p.escuta === 'todas' ? 'todas' : `${p.escuta.length}`) : '';
-  const selo = p?.humana ? 'Você · humana' : p?.memoria ? `Memória · escuta ${escuta}` : p?.saida ? `Saída · ${p.arquivo}` : p && `${MOTOR_CURTO[p.motor]} · ${modeloCurto(p.modelo)}`;
+  const selo = p?.humana ? 'Você · humana' : p?.memoria ? `Memória · ${itensMemoria} ${itensMemoria === 1 ? 'item' : 'itens'}` : p?.saida ? `Saída · ${p.arquivo}` : p && `${MOTOR_CURTO[p.motor]} · ${modeloCurto(p.modelo)}`;
   return p && { cor: p.cor, selo: selo!, inicio: p.inicio, saida: p.saida, humana: p.humana, memoria: p.memoria };
 };
 const atualizarPersona = (p: PersonaView) => {
@@ -128,7 +128,25 @@ async function carregarPersonas() {
     canvas.renderAll();
   } catch {}
 }
-const personaPanel = new PersonaPanel(API, store, (p) => atualizarPersona(p));
+// O palácio da memória e quantos itens ela tem (aparece no selo da persona de memória).
+let itensMemoria = 0;
+const palacio = new PalacioDialog(API, (n) => {
+  itensMemoria = n;
+  canvas.renderAll();
+});
+const contarMemoria = debounce(
+  () =>
+    void fetch(`${API}/memoria`)
+      .then((r) => r.json())
+      .then((j) => {
+        itensMemoria = j.existe ? j.itens : 0;
+        canvas.renderAll();
+      })
+      .catch(() => {}),
+  300,
+);
+contarMemoria();
+const personaPanel = new PersonaPanel(API, store, (p) => atualizarPersona(p), () => void palacio.abrir());
 // Retângulo novo (de outra aba, do código ou da paleta): busca a persona dele.
 store.subscribe((change) => {
   if (change.source !== 'view' && change.event && ['node.added', 'diagram.replaced'].includes(change.event.type)) void carregarPersonasLogo();
@@ -152,7 +170,11 @@ const sync = new ServerSync(
   (msg) => canvas.pulseEdge(msg.id, msg.label),
   (msg) => {
     if (msg.type === 'persona.atualizada') atualizarPersona(msg.persona as PersonaView);
-    else chat.receber(msg);
+    else {
+      chat.receber(msg);
+      // A memória mudou (atualização gravada ou proposta aceita): o selo mostra o novo total.
+      if ((msg.type === 'chat.mensagem' || msg.type === 'chat.mensagem.atualizada') && (msg as { mensagem?: { tipo?: string } }).mensagem?.tipo === 'memoria') contarMemoria();
+    }
   },
 );
 void carregarPersonas();

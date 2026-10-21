@@ -117,6 +117,10 @@ Marque **Persona de memória (escuta e guarda)** no painel (no yaml: `memoria: t
 - **Compacta:** junta os repetidos, troca o que foi superado e fica abaixo do tamanho-alvo (`limite`, padrão 4000 caracteres; se passar, ela compacta de novo).
 - **Persistente:** a memória fica em `diagrams/<diagrama>/memoria.md` e continua de uma conversa para a próxima.
 - **Compartilhar quando precisa:** quem está em **Resumo no início para** (`resumoPara`) recebe as Decisões e Pendências da memória na primeira vez que fala na conversa. Qualquer persona pode escrever `RECORDAR: <pergunta>`: a memória responde com os itens que combinam (busca por palavras, sem LLM, barata até no Ollama) e a persona fala de novo, já com eles. No MCP, a ferramenta `recordar(diagrama, pergunta)` faz a mesma busca.
+- **Palácio da memória:** o botão **Abrir palácio da memória** do painel mostra as salas como cartões, com busca, filtro por persona e por conversa, e botões para editar e apagar cada item. Itens `(superado)` aparecem riscados e `(contestado)`, em destaque. A aba **Histórico** guarda cada versão (`memoria/historico/`), e **Markdown** edita o arquivo inteiro ou zera a memória. O selo no canvas mostra quantos itens ela tem.
+- **Curadoria:** marque **Curadoria (eu aprovo antes de gravar)** (`curadoria: true`). Cada atualização vira uma proposta no chat, com **Aceitar** e **Descartar**.
+- **Conflitos:** quando a nova versão marca itens como superados ou contestados, o chat avisa quais são.
+- **Exportar:** a memória pode ter dados pessoais, então o `.zip` só a leva pelo menu **Exportar .zip com memória** (`?memoria=1`). Duplicar o diagrama não copia a memória.
 
 ## Os modos
 
@@ -162,6 +166,10 @@ curl -X POST $D/conversas/<id>/mensagens -d '{"texto":"@Cética e o aluguel?"}'
 curl -X POST $D/conversas/<id>/sintetizar
 curl -X POST $D/conversas/<id>/parar
 curl -X POST $D/conversas/<id>/humano -d '{"acao":"aprovar","texto":"siga"}'   # aprovar · mudar · encerrar
+curl $D/memoria                                         # {md, existe, itens}: o palácio
+curl -X PUT --data-binary @memoria.md $D/memoria        # editar (guarda um snapshot no histórico)
+curl $D/memoria/historico                               # versões anteriores
+curl -X POST $D/conversas/<id>/memoria -d '{"mensagem":"m-…","acao":"aceitar"}'   # curadoria
 curl -OJ $D/conversas/<id>/saidas/README.md             # baixa o .md gerado
 ```
 

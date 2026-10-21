@@ -85,6 +85,9 @@ export interface Mensagem {
   link?: { diagrama: string; conversa: string };
   /** A memória respondendo a um RECORDAR: entra na transcrição (as atualizações da memória não). */
   recordacao?: boolean;
+  /** Curadoria: a memória proposta, esperando o usuário aceitar ou descartar. */
+  proposta?: string;
+  decisao?: 'aceita' | 'descartada';
   uso?: Uso;
 }
 
@@ -593,10 +596,25 @@ export function createConversas(opts: OpcoesConversas) {
         const c = await turno(v, id, { tipo: 'memoria', contexto: `Compacte esta memória para no máximo ${p.limite} caracteres, sem perder decisões e pendências, e devolva só o markdown:\n\n${md}` });
         if (c) md = semCerca(c.resposta.texto);
       }
-      opts.gravarMemoria?.(md, v.dados.id);
-      registrar(v, mensagemDe(r, 'memoria', { texto: `Memória atualizada: ${contarItens(md)} ${contarItens(md) === 1 ? 'item' : 'itens'}.` }));
+      const n = `${contarItens(md)} ${contarItens(md) === 1 ? 'item' : 'itens'}`;
+      avisarConflito(v, atual, md);
+      if (p.curadoria) registrar(v, mensagemDe(r, 'memoria', { texto: `Proposta de memória: ${n}. Aceite ou descarte.`, proposta: md }));
+      else {
+        opts.gravarMemoria?.(md, v.dados.id);
+        registrar(v, mensagemDe(r, 'memoria', { texto: `Memória atualizada: ${n}.` }));
+      }
       v.memoriaVista.set(id, v.dados.mensagens.length);
     }
+  };
+
+  /** Itens marcados como superados ou contestados. */
+  const marcados = (md: string) => md.split('\n').filter((l) => /^\s*[-*] /.test(l) && /\((superado|contestado)\)/i.test(l)).map((l) => l.replace(/^\s*[-*]\s+/, '').trim());
+
+  /** Conflito: a nova versão marcou itens como superados ou contestados (o chat mostra quais). */
+  const avisarConflito = (v: Viva, antes: string, depois: string) => {
+    const ja = new Set(marcados(antes));
+    const novos = marcados(depois).filter((x) => !ja.has(x));
+    if (novos.length) sistema(v, `Conflito na memória: ${novos.length === 1 ? 'um item foi marcado' : `${novos.length} itens foram marcados`} como superado ou contestado.\n${novos.map((x) => `- ${x}`).join('\n')}`);
   };
 
   /**
@@ -816,6 +834,20 @@ export function createConversas(opts: OpcoesConversas) {
         await atualizarMemoria(v, 'fim');
         await gerarSaidas(v);
       });
+    },
+
+    /** Curadoria: o usuário aceita (grava) ou descarta a memória proposta numa mensagem. */
+    decidirMemoria(id: string, mensagem: string, acao: 'aceitar' | 'descartar'): Mensagem {
+      const v = viva(id);
+      const m = v.dados.mensagens.find((x) => x.id === mensagem && x.proposta !== undefined);
+      if (!m) throw new OpError(404, 'Proposta de memória não encontrada.');
+      if (m.decisao) throw new OpError(409, `Essa proposta já foi ${m.decisao}.`);
+      if (acao !== 'aceitar' && acao !== 'descartar') throw new OpError(400, '"acao" deve ser aceitar ou descartar.');
+      if (acao === 'aceitar') opts.gravarMemoria?.(m.proposta!, v.dados.id);
+      m.decisao = acao === 'aceitar' ? 'aceita' : 'descartada';
+      salvar(v.dados);
+      emitir(v.dados, { type: 'chat.mensagem.atualizada', mensagem: m });
+      return structuredClone(m);
     },
 
     obter(id: string): Conversa {

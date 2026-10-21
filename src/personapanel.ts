@@ -27,6 +27,7 @@ export interface PersonaView {
   quando: 'rodada' | 'fala';
   limite: number;
   resumoPara: 'todas' | string[];
+  curadoria: boolean;
 }
 
 const SALVAR_MS = 600;
@@ -48,6 +49,7 @@ export function personaMd(p: PersonaView) {
   if (p.quando === 'fala') linhas.push('quando: fala');
   if (p.limite && p.limite !== 4000) linhas.push(`limite: ${p.limite}`);
   if (p.resumoPara !== 'todas') linhas.push(`resumoPara: [${p.resumoPara.join(', ')}]`);
+  if (p.curadoria) linhas.push('curadoria: true');
   if (p.depois?.diagrama) {
     linhas.push('depois:', `  diagrama: ${p.depois.diagrama}`);
     if (p.depois.modo) linhas.push(`  modo: ${p.depois.modo}`);
@@ -83,6 +85,7 @@ export class PersonaPanel {
     memoria: $<HTMLInputElement>('#pp-memoria'),
     quando: $<HTMLSelectElement>('#pp-quando'),
     limite: $<HTMLInputElement>('#pp-limite'),
+    curadoria: $<HTMLInputElement>('#pp-curadoria'),
   };
   private template = new TemplateEditor();
 
@@ -91,6 +94,8 @@ export class PersonaPanel {
     private store: Store,
     /** Avisa o resto da tela (canvas, chat) que a persona mudou. */
     private mudou: (p: PersonaView) => void,
+    /** Abre o palácio da memória do diagrama. */
+    private abrirPalacio: () => void = () => {},
   ) {
     store.subscribe(() => {
       const sel = store.selection?.kind === 'node' ? store.selection.id : null;
@@ -105,6 +110,7 @@ export class PersonaPanel {
       this.preencherModelos();
       this.editar();
     });
+    $('#pp-palacio').addEventListener('click', () => this.abrirPalacio());
     $('#pp-template').addEventListener('click', () => this.atual && void this.template.abrir(`${this.api}/personas/${encodeURIComponent(this.atual.id)}/saida`, this.atual.arquivo));
     document.addEventListener('motores', (e) => {
       for (const m of (e as CustomEvent).detail as { nome: string; modelos: string[]; ok: boolean; detalhe: string }[]) {
@@ -160,6 +166,7 @@ export class PersonaPanel {
     c.depoisRodadas.value = String(p.depois?.rodadas ?? 2);
     $('#pp-depois-box').hidden = !p.saida;
     c.memoria.checked = p.memoria;
+    c.curadoria.checked = p.curadoria;
     c.quando.value = p.quando;
     if (document.activeElement !== c.limite) c.limite.value = String(p.limite);
     $('#pp-memoria-box').hidden = !p.memoria;
@@ -224,7 +231,7 @@ export class PersonaPanel {
   private editar() {
     if (!this.atual) return;
     const c = this.campos;
-    this.atual = { ...this.atual, motor: c.motor.value as PersonaView['motor'], modelo: c.modelo.value.trim(), papel: c.papel.value, esforco: c.esforco.value, cor: c.cor.value, prompt: c.prompt.value, inicio: c.inicio.checked, saida: c.saida.checked, arquivo: c.arquivo.value.trim() || 'saida.md', humana: c.humana.checked, prazo: Number(c.prazo.value) > 0 ? Number(c.prazo.value) : undefined, aoVencer: c.aoVencer.value as 'seguir' | 'encerrar', depois: c.depois.value ? { ...this.atual.depois, diagrama: c.depois.value, modo: c.depoisModo.value, rodadas: Number(c.depoisRodadas.value) || 2 } : undefined, memoria: c.memoria.checked, escuta: this.marcadas('#pp-escuta') ?? 'todas', resumoPara: this.marcadas('#pp-resumo') ?? [], quando: c.quando.value as 'rodada' | 'fala', limite: Math.max(200, Number(c.limite.value) || 4000) };
+    this.atual = { ...this.atual, motor: c.motor.value as PersonaView['motor'], modelo: c.modelo.value.trim(), papel: c.papel.value, esforco: c.esforco.value, cor: c.cor.value, prompt: c.prompt.value, inicio: c.inicio.checked, saida: c.saida.checked, arquivo: c.arquivo.value.trim() || 'saida.md', humana: c.humana.checked, prazo: Number(c.prazo.value) > 0 ? Number(c.prazo.value) : undefined, aoVencer: c.aoVencer.value as 'seguir' | 'encerrar', depois: c.depois.value ? { ...this.atual.depois, diagrama: c.depois.value, modo: c.depoisModo.value, rodadas: Number(c.depoisRodadas.value) || 2 } : undefined, memoria: c.memoria.checked, escuta: this.marcadas('#pp-escuta') ?? 'todas', resumoPara: this.marcadas('#pp-resumo') ?? [], curadoria: c.curadoria.checked, quando: c.quando.value as 'rodada' | 'fala', limite: Math.max(200, Number(c.limite.value) || 4000) };
     $('#pp-saida-box').hidden = !c.saida.checked;
     this.mostrarHumana(c.humana.checked);
     $('#pp-depois-box').hidden = !c.saida.checked;

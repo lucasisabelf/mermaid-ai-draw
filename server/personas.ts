@@ -72,6 +72,8 @@ export interface Persona {
   limite: number;
   /** Quem recebe o resumo da memória no início ("todas" ou ids; [] = só consultam com RECORDAR). */
   resumoPara: 'todas' | string[];
+  /** Curadoria: cada atualização da memória vira uma proposta para o usuário aceitar ou descartar. */
+  curadoria: boolean;
 }
 
 /** O memoria.md de um diagrama que ainda não tem: as salas do "palácio". */
@@ -194,6 +196,7 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
   if (y.humana !== undefined && typeof y.humana !== 'boolean') invalido('"humana" deve ser true ou false.');
   if (y.prazo !== undefined && (typeof y.prazo !== 'number' || !(y.prazo > 0))) invalido('"prazo" deve ser um número de minutos maior que zero.');
   if (y.memoria !== undefined && typeof y.memoria !== 'boolean') invalido('"memoria" deve ser true ou false.');
+  if (y.curadoria !== undefined && typeof y.curadoria !== 'boolean') invalido('"curadoria" deve ser true ou false.');
   if (y.arquivo !== undefined && (typeof y.arquivo !== 'string' || !ARQUIVO_RE.test(y.arquivo) || y.arquivo.includes('..'))) {
     invalido('"arquivo" deve ser só o nome de um .md, como "README.md".');
   }
@@ -217,6 +220,7 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
     memoria: y.memoria === true,
     escuta: lerEscuta('escuta', y.escuta),
     resumoPara: lerEscuta('resumoPara', y.resumoPara),
+    curadoria: y.curadoria === true,
     quando: umDe('quando', y.quando, ['rodada', 'fala'] as const, 'rodada'),
     limite: y.limite === undefined ? 4000 : (Number.isInteger(y.limite) && (y.limite as number) >= 200 ? (y.limite as number) : invalido('"limite" deve ser um número inteiro de caracteres, a partir de 200.')),
   };
@@ -237,6 +241,7 @@ export function renderPersona(p: Persona): string {
   if (p.quando !== 'rodada') opcoes.quando = p.quando;
   if (p.limite !== 4000) opcoes.limite = p.limite;
   if (p.resumoPara !== 'todas') opcoes.resumoPara = p.resumoPara;
+  if (p.curadoria) opcoes.curadoria = true;
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${stringify(opcoes)}\`\`\`\n`;
 }
 
@@ -387,5 +392,5 @@ export function carregarTemplates(dir: string): Template[] {
 }
 
 export function personaDoTemplate(t: Template, id: string, motor: MotorNome, nome = t.titulo): Persona {
-  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir', memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000, resumoPara: 'todas' };
+  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir', memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000, resumoPara: 'todas', curadoria: false };
 }

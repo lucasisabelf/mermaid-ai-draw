@@ -79,6 +79,7 @@ function montar(d: Diagram, personas: Record<string, Partial<Persona>>, motores:
     quando: 'rodada',
     limite: 4000,
     resumoPara: 'todas',
+    curadoria: false,
     ...personas[id],
   });
   const todos = { mcp: falso('mcp').motor, ollama: falso('ollama').motor, api: falso('api').motor, ...motores };
@@ -710,5 +711,49 @@ describe('memória compartilhada', () => {
     const fim = await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
     expect(falas(fim).slice(0, 2)).toEqual(['Memória:memoria', 'A:fala']);
     expect(fim.mensagens[1].texto).toMatch(/nada na memória/i);
+  });
+});
+
+describe('palácio: curadoria e conflitos', () => {
+  function comMemoria(inicial = '') {
+    const m = { md: inicial, gravacoes: 0 };
+    return { m, extra: { lerMemoria: () => m.md, gravarMemoria: (md: string) => void ((m.md = md), m.gravacoes++) } };
+  }
+
+  it('com curadoria, a atualização vira uma proposta: aceitar grava, descartar não', async () => {
+    const mcp = falso('mcp', (p) => ({ texto: p.tipo === 'memoria' ? '## Decisões\n- nova decisão (A · c1)' : 'ok' }));
+    const { m, extra } = comMemoria('## Decisões\n');
+    const d = diagrama([['a', 'A'], ['m', 'Memória']], '');
+    const conversas = montar(d, { m: { memoria: true, curadoria: true } }, { mcp: mcp.motor }, undefined, extra);
+    const c = conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 });
+    const fim = await conversas.esperar(c.id);
+    const proposta = fim.mensagens.at(-1)!;
+    expect(proposta).toMatchObject({ tipo: 'memoria', proposta: '## Decisões\n- nova decisão (A · c1)' });
+    expect(proposta.decisao).toBeUndefined();
+    expect(m.gravacoes).toBe(0);
+
+    const aceita = conversas.decidirMemoria(c.id, proposta.id, 'aceitar');
+    expect(aceita.decisao).toBe('aceita');
+    expect(m.md).toBe('## Decisões\n- nova decisão (A · c1)');
+    expect(eventos.at(-1)).toMatchObject({ type: 'chat.mensagem.atualizada', mensagem: { id: proposta.id, decisao: 'aceita' } });
+    expect(() => conversas.decidirMemoria(c.id, proposta.id, 'descartar')).toThrow(/já foi/);
+    expect(conversas.obter(c.id).mensagens.at(-1)!.decisao).toBe('aceita');
+
+    // Outra conversa: descartar não grava.
+    const c2 = conversas.iniciar({ assunto: 'y', modo: 'debate', rodadas: 1 });
+    const p2 = (await conversas.esperar(c2.id)).mensagens.at(-1)!;
+    conversas.decidirMemoria(c2.id, p2.id, 'descartar');
+    expect(m.gravacoes).toBe(1);
+    expect(() => conversas.decidirMemoria(c2.id, 'm-nada', 'aceitar')).toThrow(/não encontrada/);
+  });
+
+  it('conflito: itens novos marcados como superados ou contestados aparecem no chat', async () => {
+    const mcp = falso('mcp', (p) => ({ texto: p.tipo === 'memoria' ? '## Fatos\n- aluguel R$ 12 mil (superado) (C · c0)\n- aluguel R$ 9 mil (C · c1)' : 'ok' }));
+    const { extra } = comMemoria('## Fatos\n- aluguel R$ 12 mil (C · c0)\n');
+    const d = diagrama([['a', 'A'], ['m', 'Memória']], '');
+    const conversas = montar(d, { m: { memoria: true } }, { mcp: mcp.motor }, undefined, extra);
+    const fim = await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    const aviso = fim.mensagens.find((x) => x.tipo === 'sistema' && /Conflito/.test(x.texto));
+    expect(aviso!.texto).toContain('aluguel R$ 12 mil (superado)');
   });
 });

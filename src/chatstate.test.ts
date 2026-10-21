@@ -123,3 +123,13 @@ describe('pós-fluxo no chat', () => {
     expect(urlDaConversa('plano-de-acao', 'c-1')).toBe('?d=plano-de-acao&c=c-1');
   });
 });
+
+describe('curadoria da memória no chat', () => {
+  it('a decisão sobre a proposta atualiza a mensagem no lugar', () => {
+    let s = aplicar(inicial(), { type: 'chat.inicio', conversa: 'c1', assunto: 'x', modo: 'debate' });
+    s = aplicar(s, { type: 'chat.mensagem', conversa: 'c1', mensagem: msg('m1', { nome: 'Memória', tipo: 'memoria', texto: 'Proposta', proposta: '- a' }) });
+    s = aplicar(s, { type: 'chat.mensagem.atualizada', conversa: 'c1', mensagem: msg('m1', { nome: 'Memória', tipo: 'memoria', texto: 'Proposta', proposta: '- a', decisao: 'aceita' }) });
+    expect(s.mensagens).toHaveLength(1);
+    expect(s.mensagens[0].decisao).toBe('aceita');
+  });
+});

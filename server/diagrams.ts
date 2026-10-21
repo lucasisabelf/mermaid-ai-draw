@@ -12,7 +12,7 @@ import { criarHandlerMcp } from './mcp.ts';
 import { criarMotorApi, MODELOS_API } from './motores/api.ts';
 import { criarMotorMcp } from './motores/mcp.ts';
 import { criarMotorOllama } from './motores/ollama.ts';
-import { ARQUIVO_RE, carregarTemplates, MOTORES, personaDoTemplate, PersonaStore, type MotorNome } from './personas.ts';
+import { ARQUIVO_RE, carregarTemplates, MEMORIA_PADRAO, MOTORES, personaDoTemplate, PersonaStore, type MotorNome } from './personas.ts';
 
 /**
  * Vários diagramas, um por pasta, cada um com a própria API (a de api.ts):
@@ -47,6 +47,11 @@ import { ARQUIVO_RE, carregarTemplates, MOTORES, personaDoTemplate, PersonaStore
  *   POST   /api/d/:slug/conversas/:id/sintetizar  pede a resposta polida
  *   POST   /api/d/:slug/conversas/:id/parar
  *   GET    /api/d/:slug/conversas/:id/saidas/:arquivo   baixa o .md que a persona de saída gerou
+ *   POST   /api/d/:slug/conversas/:id/memoria     curadoria: {mensagem, acao: aceitar|descartar}
+ *   GET    /api/d/:slug/memoria                   {md, existe, itens}: a memória do diagrama (o palácio)
+ *   PUT    /api/d/:slug/memoria                   grava o memoria.md (texto) e guarda um snapshot no histórico
+ *   DELETE /api/d/:slug/memoria                   zera (move para .removidos/)
+ *   GET    /api/d/:slug/memoria/historico[/:id]   as versões anteriores / uma versão
  *   POST   /api/d/:slug/conversas/:id/humano      a resposta na vez da persona humana {acao: aprovar|mudar|encerrar, texto?}
  *   /mcp                                          servidor MCP (o Claude Code dá voz às personas "mcp")
  *
@@ -74,6 +79,10 @@ export interface DiagramItem {
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 /** Persona dentro de um .zip exportado: personas/<id>.md (o id é validado antes de virar arquivo). */
 const PERSONA_ZIP_RE = /^(?:[^/]+\/)?personas\/([A-Za-z][\w-]*)\.md$/;
+/** A memória dentro do .zip (só quando exportada com ?memoria=1). */
+const MEMORIA_ZIP_RE = /^(?:[^/]+\/)?memoria\.md$/;
+/** Um snapshot do histórico da memória: <data>-<conversa>.md. */
+const HISTORICO_RE = /^[\w-]+$/;
 /** O template de saída dentro do .zip: personas/<id>.saida.md. */
 const TEMPLATE_ZIP_RE = /^(?:[^/]+\/)?personas\/([A-Za-z][\w-]*)\.saida\.md$/;
 
@@ -165,6 +174,17 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
   };
 
   const personasDe = (slug: string) => new PersonaStore(path.join(folder(slug), 'personas'));
+  /** Grava o memoria.md e guarda um snapshot em memoria/historico/<data>-<conversa>.md. */
+  const gravarMemoriaDe = (slug: string, md: string, conversa: string) => {
+    const texto = `${md.trim()}\n`;
+    fs.writeFileSync(path.join(folder(slug), 'memoria.md'), texto);
+    const hist = path.join(folder(slug), 'memoria', 'historico');
+    fs.mkdirSync(hist, { recursive: true });
+    const quando = new Date().toISOString().replace(/[:.]/g, '-');
+    fs.writeFileSync(path.join(hist, `${quando}-${conversa.replace(/[^\w-]/g, '')}.md`), texto);
+  };
+  const contarItens = (md: string) => md.split('\n').filter((l) => /^\s*[-*] \S/.test(l)).length;
+
   /** O memoria.md do diagrama ('' quando ainda não há). */
   const lerMemoriaDe = (slug: string) => {
     try {
@@ -205,7 +225,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
           fs.writeFileSync(path.join(pasta, arquivo), `${texto}\n`);
         },
         lerMemoria: () => lerMemoriaDe(slug),
-        gravarMemoria: (md) => fs.writeFileSync(path.join(folder(slug), 'memoria.md'), `${md.trim()}\n`),
+        gravarMemoria: (md, conversa) => gravarMemoriaDe(slug, md, conversa),
         iniciarOutro: (destino, entrada, interno) => {
           if (!isDiagram(destino)) fail(404, `Diagrama "${destino}" não encontrado.`);
           return ai(destino).conversas.iniciar(entrada, interno);
@@ -310,7 +330,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     return item;
   };
 
-  const exportZip = (slug: string) => {
+  const exportZip = (slug: string, comMemoria = false) => {
     const d = current(slug);
     const meta = readMeta(slug);
     return {
@@ -321,6 +341,8 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
         'diagram.mmd': strToU8(`${toMermaid(d)}\n`),
         ...Object.fromEntries(personasDe(slug).ids().map((id) => [`personas/${id}.md`, strToU8(personasDe(slug).lerMd(id, id))])),
         ...Object.fromEntries(personasDe(slug).idsComTemplate().map((id) => [`personas/${id}.saida.md`, strToU8(personasDe(slug).lerTemplate(id))])),
+        // A memória pode ter dados pessoais: só vai junto quando pedida.
+        ...(comMemoria && lerMemoriaDe(slug) ? { 'memoria.md': strToU8(lerMemoriaDe(slug)) } : {}),
       }),
     };
   };
@@ -339,7 +361,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     try {
       // Só os arquivos que interessam são descompactados: nada do zip é gravado com o nome que traz.
       files = unzipSync(new Uint8Array(data), {
-        filter: (f) => ([META, 'diagram.json', 'diagram.mmd'].includes(path.posix.basename(f.name)) || PERSONA_ZIP_RE.test(f.name) || TEMPLATE_ZIP_RE.test(f.name)) && f.originalSize <= MAX_IMPORT,
+        filter: (f) => ([META, 'diagram.json', 'diagram.mmd'].includes(path.posix.basename(f.name)) || PERSONA_ZIP_RE.test(f.name) || TEMPLATE_ZIP_RE.test(f.name) || MEMORIA_ZIP_RE.test(f.name)) && f.originalSize <= MAX_IMPORT,
       });
     } catch (err) {
       fail(400, `Arquivo não é um .zip válido: ${(err as Error).message}`);
@@ -373,6 +395,10 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     // As personas: só o id validado vira nome de arquivo (nada do caminho do zip é usado).
     const store = personasDe(item.slug);
     for (const [k, v] of Object.entries(files)) {
+      if (MEMORIA_ZIP_RE.test(k) && strFromU8(v).trim()) {
+        gravarMemoriaDe(item.slug, strFromU8(v), 'importada');
+        continue;
+      }
       const template = TEMPLATE_ZIP_RE.exec(k)?.[1];
       const id = PERSONA_ZIP_RE.exec(k)?.[1];
       try {
@@ -439,7 +465,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     const [resource, slug, action] = parts;
 
     try {
-      if (resource === 'd' && slug && ['personas', 'templates', 'conversas'].includes(action)) {
+      if (resource === 'd' && slug && ['personas', 'templates', 'conversas', 'memoria'].includes(action)) {
         return await rotasDeIa(req, res, slug, parts.slice(2), method);
       }
       if (resource === 'templates' && parts.length === 1 && method === 'GET') {
@@ -487,7 +513,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
             res.setHeader('Content-Disposition', `attachment; filename="${file}.mmd"`);
             return res.end(`${toMermaid(current(slug))}\n`);
           }
-          const { zip } = exportZip(slug);
+          const { zip } = exportZip(slug, url.searchParams.get('memoria') === '1');
           res.setHeader('Content-Type', 'application/zip');
           res.setHeader('Content-Disposition', `attachment; filename="${file}.zip"`);
           return res.end(Buffer.from(zip));
@@ -572,6 +598,10 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
         conversas.parar(ref);
         return send(res, 202, { ok: true });
       }
+      if (ref && method === 'POST' && acao === 'memoria') {
+        const body = await corpo();
+        return send(res, 200, conversas.decidirMemoria(ref, String(body.mensagem ?? ''), body.acao as 'aceitar'));
+      }
       if (ref && method === 'POST' && acao === 'humano') {
         const body = await corpo();
         conversas.responderHumano(ref, { acao: body.acao as 'aprovar', texto: typeof body.texto === 'string' ? body.texto : undefined });
@@ -587,6 +617,49 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(arquivo)}`,
         });
         return res.end(fs.readFileSync(caminho));
+      }
+    }
+    if (recurso === 'memoria') {
+      const pasta = folder(slug);
+      if (!ref) {
+        if (method === 'GET') {
+          const md = lerMemoriaDe(slug);
+          return send(res, 200, { md: md || MEMORIA_PADRAO, existe: Boolean(md), itens: contarItens(md) });
+        }
+        if (method === 'PUT') {
+          const md = await texto();
+          if (!md.trim()) fail(400, 'A memória não pode ficar vazia (para apagar, use Zerar).');
+          gravarMemoriaDe(slug, md, 'manual');
+          return send(res, 200, { ok: true, itens: contarItens(md) });
+        }
+        if (method === 'DELETE') {
+          const arq = path.join(pasta, 'memoria.md');
+          if (fs.existsSync(arq)) {
+            const lixo = path.join(pasta, '.removidos');
+            fs.mkdirSync(lixo, { recursive: true });
+            fs.renameSync(arq, path.join(lixo, `memoria-${Date.now()}.md`));
+          }
+          return send(res, 200, { ok: true });
+        }
+      }
+      if (ref === 'historico' && method === 'GET') {
+        const hist = path.join(pasta, 'memoria', 'historico');
+        if (!acao) {
+          const arquivos = fs.existsSync(hist) ? fs.readdirSync(hist).filter((f) => f.endsWith('.md')).sort().reverse() : [];
+          return send(
+            res,
+            200,
+            arquivos.map((f) => {
+              const id = f.slice(0, -3);
+              const m = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-\d{3}Z-(.+)$/.exec(id);
+              return { id, em: m ? `${m[1]}T${m[2]}:${m[3]}:${m[4]}Z` : '', conversa: m?.[5] ?? '', itens: contarItens(fs.readFileSync(path.join(hist, f), 'utf8')) };
+            }),
+          );
+        }
+        const arq = path.join(hist, `${acao}.md`);
+        if (!HISTORICO_RE.test(acao) || !fs.existsSync(arq)) fail(404, 'Versão da memória não encontrada.');
+        res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+        return res.end(fs.readFileSync(arq));
       }
     }
     return send(res, 404, { error: `Rota não encontrada: ${method} /api/d/${slug}/${parts.join('/')}` });

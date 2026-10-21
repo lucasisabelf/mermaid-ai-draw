@@ -293,7 +293,7 @@ export class ChatPanel {
 
   // ---- desenho ---------------------------------------------------------------------
 
-  private bolha(m: { nome: string; tipo: string; texto: string; persona?: string; motor?: string; modelo?: string; arquivo?: string; link?: MensagemView['link']; uso?: MensagemView['uso'] }, profundidade: number, pendente = false) {
+  private bolha(m: { id?: string; nome: string; tipo: string; texto: string; persona?: string; motor?: string; modelo?: string; arquivo?: string; link?: MensagemView['link']; proposta?: string; decisao?: MensagemView['decisao']; uso?: MensagemView['uso'] }, profundidade: number, pendente = false) {
     const cor = this.deps.personas().find((p) => p.id === m.persona)?.cor;
     const el = document.createElement('div');
     el.className = `msg tipo-${m.tipo}${pendente ? ' pendente' : ''}`;
@@ -314,12 +314,39 @@ export class ChatPanel {
     else corpo.innerHTML = formatar(m.texto);
     el.append(head, corpo);
     if (m.tipo === 'saida' && m.arquivo && this.estado.conversa && !pendente) el.append(this.acoesDaSaida(this.estado.conversa, m.arquivo, m.texto));
+    // Curadoria: a memória proposta, com Aceitar e Descartar (ou o que já foi decidido).
+    if (m.proposta !== undefined && !pendente) el.append(this.acoesDaProposta(m));
     // Pós-fluxo: o link para a conversa disparada (ou para a de origem).
     if (m.link) {
       const a = Object.assign(document.createElement('a'), { className: 'msg-link', href: urlDaConversa(m.link.diagrama, m.link.conversa), textContent: `Abrir a conversa em "${m.link.diagrama}" →` });
       el.append(a);
     }
     return el;
+  }
+
+  private acoesDaProposta(m: { id?: string; proposta?: string; decisao?: MensagemView['decisao'] }) {
+    const box = Object.assign(document.createElement('div'), { className: 'msg-proposta' });
+    const ver = Object.assign(document.createElement('details'), {});
+    ver.append(Object.assign(document.createElement('summary'), { textContent: 'Ver a memória proposta' }), Object.assign(document.createElement('pre'), { textContent: m.proposta }));
+    box.append(ver);
+    const barra = Object.assign(document.createElement('div'), { className: 'msg-arquivo' });
+    if (m.decisao) barra.append(Object.assign(document.createElement('span'), { className: 'msg-arquivo-nome', textContent: m.decisao === 'aceita' ? '✓ Aceita: gravada na memória' : '✗ Descartada' }));
+    else {
+      barra.append(Object.assign(document.createElement('span'), { className: 'msg-arquivo-nome', textContent: 'Gravar na memória?' }));
+      for (const [acao, rotulo] of [
+        ['descartar', 'Descartar'],
+        ['aceitar', 'Aceitar'],
+      ] as const) {
+        const b = Object.assign(document.createElement('button'), { type: 'button', className: `msg-arquivo-acao${acao === 'aceitar' ? ' primary' : ''}`, textContent: rotulo });
+        b.addEventListener('click', () => {
+          if (!this.estado.conversa || !m.id) return;
+          void this.post(`/conversas/${this.estado.conversa}/memoria`, { mensagem: m.id, acao }).catch((err) => this.aviso((err as Error).message));
+        });
+        barra.append(b);
+      }
+    }
+    box.append(barra);
+    return box;
   }
 
   /** O .md gerado pela persona de saída: baixar ou copiar. */

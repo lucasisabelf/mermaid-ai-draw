@@ -1486,3 +1486,146 @@ button.icon {
   border-style: dotted;
   opacity: 0.85;
 }
+
+/* Palácio da memória: salas como cartões, itens com origem e status, histórico e markdown. */
+.palacio[open] {
+  width: min(900px, calc(100vw - 32px));
+}
+
+.pa-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+
+.pa-pane[hidden] {
+  display: none;
+}
+
+.pa-filtros {
+  display: flex;
+  gap: 6px;
+}
+
+.pa-filtros input {
+  flex: 1;
+}
+
+.pa-filtros input,
+.pa-filtros select {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.pa-salas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.pa-sala {
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.pa-sala h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.pa-sala h4 span {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.pa-sala ul,
+.pa-historico ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pa-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 4px 0;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.pa-item button {
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.pa-texto {
+  flex: 1;
+}
+
+.pa-item.superado .pa-texto {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.pa-item.contestado .pa-texto {
+  color: var(--danger);
+}
+
+.pa-vazio {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pa-historico {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 10px;
+  min-height: 0;
+}
+
+.pa-historico button {
+  width: 100%;
+  margin-bottom: 4px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.pa-historico pre,
+.msg-proposta pre {
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+#pa-md {
+  flex: 1;
+  min-height: 300px;
+  padding: 10px;
+  font: 13px/1.5 ui-monospace, 'Cascadia Code', Consolas, monospace;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.msg-proposta summary {
+  margin-top: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
