@@ -1392,3 +1392,47 @@ button.icon {
 .msg-arquivo-acao:hover {
   border-color: var(--accent);
 }
+
+/* Persona humana: a vez dela no chat (destacada) e os campos de motor apagados no painel. */
+.chat-espera {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 10px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+
+.chat-espera[hidden] {
+  display: none;
+}
+
+.ce-titulo {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.ce-pedido {
+  max-height: 120px;
+  overflow: auto;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.chat-espera textarea {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  resize: vertical;
+}
+
+.pp-e-humana .pp-grid label:nth-child(-n + 4) {
+  opacity: 0.45;
+}

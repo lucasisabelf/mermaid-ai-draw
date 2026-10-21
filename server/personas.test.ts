@@ -82,6 +82,20 @@ describe('parsePersona', () => {
     }
   });
 
+  it('persona humana: sem motor, com prazo opcional e o que fazer quando vence', () => {
+    const comum = parsePersona('n1', CETICA, 'Cética');
+    expect(comum).toMatchObject({ humana: false, aoVencer: 'seguir' });
+    expect(comum.prazo).toBeUndefined();
+    expect(renderPersona(comum)).not.toMatch(/humana|prazo|aoVencer/);
+
+    const p = parsePersona('n9', 'Você aprova.\n\n```yaml\nhumana: true\nprazo: 30\naoVencer: encerrar\n```\n', 'Você');
+    expect(p).toMatchObject({ humana: true, prazo: 30, aoVencer: 'encerrar' });
+    expect(parsePersona('n9', renderPersona(p), 'Você')).toEqual(p);
+    for (const ruim of ['humana: sim', 'prazo: 0', 'prazo: dez', 'aoVencer: talvez']) {
+      expect(() => parsePersona('n9', `x\n\n\`\`\`yaml\n${ruim}\n\`\`\`\n`, 'X'), ruim).toThrow(OpError);
+    }
+  });
+
   it('renderPersona e parsePersona fazem ida e volta', () => {
     const p = parsePersona('n2', CETICA, 'Cética');
     expect(parsePersona('n2', renderPersona(p), 'Cética')).toEqual(p);

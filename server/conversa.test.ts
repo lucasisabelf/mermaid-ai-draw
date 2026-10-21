@@ -72,6 +72,8 @@ function montar(d: Diagram, personas: Record<string, Partial<Persona>>, motores:
     inicio: false,
     saida: false,
     arquivo: 'saida.md',
+    humana: false,
+    aoVencer: 'seguir',
     ...personas[id],
   });
   const todos = { mcp: falso('mcp').motor, ollama: falso('ollama').motor, api: falso('api').motor, ...motores };
@@ -390,5 +392,124 @@ describe('persona de saída', () => {
     expect(fim.status).toBe('terminada');
     expect(falas(fim)).toEqual(['A:fala', 'README:erro']);
     expect(gravadas).toEqual([]);
+  });
+});
+
+/** Espera a conversa chegar no status (a vez humana pausa a execução). */
+async function ate(conversas: ReturnType<typeof montar>, id: string, status: string) {
+  for (let i = 0; i < 100 && conversas.obter(id).status !== status; i++) await espera(5);
+  expect(conversas.obter(id).status).toBe(status);
+}
+
+describe('persona humana', () => {
+  const voce = { humana: true } as const;
+
+  it('a conversa pausa na vez dela, mostra o pedido e segue com a resposta', async () => {
+    const mcp = falso('mcp');
+    const d = diagrama([['a', 'A'], ['h', 'Você'], ['b', 'B']], 'a>h h>b');
+    const conversas = montar(d, { h: voce }, { mcp: mcp.motor });
+    const c = conversas.iniciar({ assunto: 'Lançar?', modo: 'debate', rodadas: 1 });
+    await ate(conversas, c.id, 'aguardando');
+
+    const parada = conversas.obter(c.id);
+    expect(parada.espera).toMatchObject({ persona: 'h', nome: 'Você', tipo: 'fala' });
+    expect(parada.espera!.contexto).toContain('A: A fala 1');
+    expect(mcp.pedidos.map((p) => p.persona.id)).toEqual(['a']);
+    expect(eventos.find((e) => e.type === 'chat.turno' && e.status === 'aguardando')).toMatchObject({ persona: 'h', espera: { nome: 'Você' } });
+
+    conversas.responderHumano(c.id, { acao: 'aprovar', texto: 'pode seguir' });
+    const fim = await conversas.esperar(c.id);
+    expect(fim.status).toBe('terminada');
+    expect(fim.espera).toBeUndefined();
+    expect(falas(fim)).toEqual(['A:fala', 'Você:fala', 'B:fala']);
+    expect(fim.mensagens[2]).toMatchObject({ persona: 'h', texto: 'Aprovado. pode seguir' });
+    expect(fim.mensagens[2].motor).toBeUndefined();
+    expect(mcp.pedidos.at(-1)!.contexto).toContain('Você: Aprovado. pode seguir');
+    // Fora da vez dela, responder é um erro.
+    expect(() => conversas.responderHumano(c.id, { acao: 'aprovar' })).toThrow(/não está esperando/);
+  });
+
+  it('pedir mudança: quem falou antes responde de novo ao pedido', async () => {
+    const mcp = falso('mcp');
+    const d = diagrama([['a', 'A'], ['h', 'Você']], 'a>h');
+    const conversas = montar(d, { h: voce }, { mcp: mcp.motor });
+    const c = conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 });
+    await ate(conversas, c.id, 'aguardando');
+    conversas.responderHumano(c.id, { acao: 'mudar', texto: 'mais curto' });
+    const fim = await conversas.esperar(c.id);
+    expect(falas(fim)).toEqual(['A:fala', 'Você:fala', 'A:fala']);
+    expect(fim.mensagens[2].texto).toBe('Pedido de mudança: mais curto');
+    expect(mcp.pedidos.at(-1)!.respondendoA).toEqual(['h']);
+  });
+
+  it('encerrar termina a conversa ali', async () => {
+    const mcp = falso('mcp');
+    const d = diagrama([['a', 'A'], ['h', 'Você'], ['b', 'B']], 'a>h h>b');
+    const conversas = montar(d, { h: voce }, { mcp: mcp.motor });
+    const c = conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 2 });
+    await ate(conversas, c.id, 'aguardando');
+    conversas.responderHumano(c.id, { acao: 'encerrar', texto: 'chega' });
+    const fim = await conversas.esperar(c.id);
+    expect(fim.status).toBe('terminada');
+    expect(falas(fim)).toEqual(['A:fala', 'Você:fala', 'Conversa:sistema']);
+    expect(mcp.pedidos.map((p) => p.persona.id)).toEqual(['a']);
+  });
+
+  it('na tarefa, a humana recebe a delegação e o resultado dela vai para a consolidação', async () => {
+    const mcp = falso('mcp', (p) => {
+      if (p.tipo === 'tarefa') return { texto: 'DELEGAR Você: aprove o orçamento' };
+      if (p.tipo === 'consolidar') return { texto: `Consolidado com: ${p.contexto.includes('ok, até 5 mil') ? 'aprovação' : 'nada'}` };
+      return { texto: 'x' };
+    });
+    const d = diagrama([['o', 'Orquestradora'], ['h', 'Você']], 'o>h');
+    const conversas = montar(d, { o: { papel: 'orquestradora' }, h: voce }, { mcp: mcp.motor });
+    const c = conversas.iniciar({ assunto: 'Comprar', modo: 'tarefa' });
+    await ate(conversas, c.id, 'aguardando');
+    expect(conversas.obter(c.id).espera).toMatchObject({ tipo: 'execucao' });
+    expect(conversas.obter(c.id).espera!.contexto).toContain('aprove o orçamento');
+    conversas.responderHumano(c.id, { acao: 'aprovar', texto: 'ok, até 5 mil' });
+    const fim = await conversas.esperar(c.id);
+    expect(fim.resposta).toBe('Consolidado com: aprovação');
+  });
+
+  it('prazo: sem resposta, segue sozinha ou encerra', async () => {
+    const d = diagrama([['a', 'A'], ['h', 'Você'], ['b', 'B']], 'a>h h>b');
+    const segue = montar(d, { h: { ...voce, prazo: 0.002 } }, {});
+    const f1 = await segue.esperar(segue.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    expect(falas(f1)).toEqual(['A:fala', 'Você:fala', 'B:fala']);
+    expect(f1.mensagens[2].texto).toMatch(/prazo/);
+
+    const encerra = montar(d, { h: { ...voce, prazo: 0.002, aoVencer: 'encerrar' } }, {});
+    const f2 = await encerra.esperar(encerra.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    expect(f2.status).toBe('terminada');
+    expect(falas(f2)).toEqual(['A:fala', 'Conversa:sistema']);
+  });
+
+  it('parar enquanto espera encerra a conversa', async () => {
+    const d = diagrama([['a', 'A'], ['h', 'Você']], 'a>h');
+    const conversas = montar(d, { h: voce }, {});
+    const c = conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 });
+    await ate(conversas, c.id, 'aguardando');
+    conversas.parar(c.id);
+    const fim = await conversas.esperar(c.id);
+    expect(fim.status).toBe('parada');
+    expect(fim.espera).toBeUndefined();
+  });
+
+  it('depois de reiniciar o servidor, a espera continua e o debate retoma do próximo', async () => {
+    const mcp = falso('mcp');
+    const d = diagrama([['a', 'A'], ['h', 'Você'], ['b', 'B']], 'a>h h>b');
+    const antes = montar(d, { h: voce }, { mcp: mcp.motor });
+    const c = antes.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 });
+    await ate(antes, c.id, 'aguardando');
+    antes.fechar();
+
+    // Outra instância lendo a mesma pasta (o servidor reiniciou).
+    const depois = montar(d, { h: voce }, { mcp: mcp.motor });
+    expect(depois.obter(c.id)).toMatchObject({ status: 'aguardando', espera: { persona: 'h' } });
+    depois.responderHumano(c.id, { acao: 'aprovar', texto: 'voltei' });
+    const fim = await depois.esperar(c.id);
+    expect(fim.status).toBe('terminada');
+    expect(falas(fim)).toEqual(['A:fala', 'Você:fala', 'B:fala']);
   });
 });

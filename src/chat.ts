@@ -1,4 +1,4 @@
-import { aplicar, formatarCusto, inicial, sugerirMencoes, urlDaSaida, type ChatState, type MensagemView } from './chatstate';
+import { aplicar, formatarCusto, inicial, sugerirMencoes, urlDaSaida, type ChatState, type Espera, type MensagemView } from './chatstate';
 
 /**
  * O chat da lateral esquerda: começa uma conversa entre as personas (debate, resposta ou tarefa),
@@ -50,6 +50,11 @@ export class ChatPanel {
   private custoEl = $('#chat-custo');
   private motoresEl = $('#chat-motores');
   private falandoAgora = new Set<string>();
+  private esperaEl = $<HTMLFormElement>('#chat-espera');
+  private esperaTexto = $<HTMLTextAreaElement>('#ce-texto');
+  private esperaTurno?: string;
+  private tituloOriginal = document.title;
+  private piscar?: number;
 
   constructor(private deps: ChatDeps) {
     this.novoEl.addEventListener('submit', (e) => {
@@ -69,6 +74,21 @@ export class ChatPanel {
       });
     }
     this.textoEl.addEventListener('input', () => this.sugerir());
+    // A vez humana: Aprovar (Enter), Pedir mudança ou Encerrar.
+    this.esperaEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      void this.responderHumano('aprovar');
+    });
+    for (const b of this.esperaEl.querySelectorAll<HTMLButtonElement>('button[type="button"][data-acao]')) {
+      b.addEventListener('click', () => void this.responderHumano(b.dataset.acao as 'mudar' | 'encerrar'));
+    }
+    this.esperaTexto.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.esperaEl.requestSubmit();
+      }
+    });
+    window.addEventListener('focus', () => this.pararDeAvisar());
     $('#chat-parar').addEventListener('click', () => void this.acao('parar'));
     $('#chat-sintetizar').addEventListener('click', () => void this.acao('sintetizar'));
     $('#chat-nova').addEventListener('click', () => this.mostrar(inicial()));
@@ -109,7 +129,62 @@ export class ChatPanel {
     return json;
   }
 
+  private async responderHumano(acao: 'aprovar' | 'mudar' | 'encerrar') {
+    if (!this.estado.conversa || !this.estado.espera) return;
+    if (acao === 'mudar' && !this.esperaTexto.value.trim()) {
+      this.esperaTexto.focus();
+      this.esperaTexto.placeholder = 'Diga o que mudar…';
+      return;
+    }
+    try {
+      await this.post(`/conversas/${this.estado.conversa}/humano`, { acao, texto: this.esperaTexto.value });
+      this.esperaTexto.value = '';
+      this.pararDeAvisar();
+    } catch (err) {
+      this.aviso((err as Error).message);
+    }
+  }
+
+  /** Mostra (ou esconde) o bloco "Sua vez" e avisa quando a vez acabou de chegar. */
+  private mostrarEspera(e: Espera | undefined) {
+    this.esperaEl.hidden = !e;
+    if (!e) {
+      this.esperaTurno = undefined;
+      return this.pararDeAvisar();
+    }
+    if (e.turno === this.esperaTurno) return;
+    this.esperaTurno = e.turno;
+    $('#ce-titulo').textContent = `Sua vez como ${e.nome}`;
+    // O pedido: a tarefa delegada (no começo do contexto) ou o "Sua vez: …" (no fim).
+    const partes = e.contexto.split('\n\n');
+    const pedido = e.tipo === 'execucao' ? partes[0] : partes.at(-1)!;
+    $('#ce-pedido').innerHTML = formatar(pedido);
+    this.esperaTexto.placeholder = 'Sua resposta (opcional ao aprovar)…';
+    this.esperaTexto.focus();
+    this.avisar(`Sua vez como ${e.nome}`, pedido);
+  }
+
+  private avisar(titulo: string, corpo: string) {
+    clearInterval(this.piscar);
+    let ligado = false;
+    this.piscar = window.setInterval(() => {
+      ligado = !ligado;
+      document.title = ligado ? `● ${titulo}` : this.tituloOriginal;
+    }, 1000);
+    if ('Notification' in window && Notification.permission === 'granted' && !document.hasFocus()) {
+      new Notification(titulo, { body: corpo.slice(0, 200) });
+    }
+  }
+
+  private pararDeAvisar() {
+    clearInterval(this.piscar);
+    this.piscar = undefined;
+    document.title = this.tituloOriginal;
+  }
+
   private async comecar() {
+    // Pede (uma vez) para avisar quando a vez de uma persona humana chegar com a aba em segundo plano.
+    if ('Notification' in window && Notification.permission === 'default') void Notification.requestPermission();
     const assunto = $<HTMLTextAreaElement>('#chat-assunto');
     try {
       const c = await this.post('/conversas', {
@@ -258,11 +333,13 @@ export class ChatPanel {
   private render() {
     const s = this.estado;
     const temConversa = Boolean(s.conversa);
-    this.novoEl.hidden = temConversa && s.status === 'rodando';
+    const viva = s.status === 'rodando' || s.status === 'aguardando';
+    this.novoEl.hidden = temConversa && viva;
+    this.mostrarEspera(s.espera);
     this.intervirEl.hidden = !temConversa;
-    $<HTMLButtonElement>('#chat-parar').disabled = s.status !== 'rodando';
+    $<HTMLButtonElement>('#chat-parar').disabled = !viva;
     $<HTMLButtonElement>('#chat-sintetizar').disabled = !temConversa;
-    if (temConversa && s.status !== 'rodando') this.novoEl.hidden = true;
+    if (temConversa && !viva) this.novoEl.hidden = true;
     this.custoEl.textContent = s.custo ? formatarCusto(s.custo) : '';
     if (this.historicoEl.value !== (s.conversa ?? '') && [...this.historicoEl.options].some((o) => o.value === s.conversa)) this.historicoEl.value = s.conversa!;
 

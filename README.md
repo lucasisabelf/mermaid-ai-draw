@@ -97,6 +97,16 @@ Marque **Persona de saída** no painel (no yaml: `saida: true` e `arquivo: READM
 - **Template:** fica à parte, em `personas/<id>.saida.md`. Edite pelo botão **Editar template** do painel, que mexe só no template, sem tocar no prompt nem no yaml. Troque cada `{{marcação}}` pelo que ela deve escrever.
 - **No canvas:** ela mostra um ícone de documento e o selo `Saída · README.md`.
 
+### Persona humana
+
+Marque **Persona humana (a conversa espera você)** no painel (no yaml: `humana: true`). Ela é você e não usa motor.
+- **Na vez dela:** a conversa fica `aguardando`, e o chat mostra o bloco **"Sua vez como <nome>"** com o pedido. Você escreve (opcional) e escolhe **Aprovar**, **Pedir mudança** (quem falou antes refaz, considerando o seu pedido) ou **Encerrar**.
+- **Na tarefa:** ela pode receber uma delegação; a sua resposta vira o resultado.
+- **Prazo:** opcional (`prazo: 30`, em minutos), com `aoVencer: seguir | encerrar`.
+- **Reinício:** a espera sobrevive a reiniciar o servidor (o debate retoma do próximo da rodada).
+- **Aviso:** o título da aba pisca e, com permissão, chega uma notificação.
+- **MCP:** o Claude Code nunca recebe essa vez.
+
 ## Os modos
 
 | Modo | O que acontece |
@@ -140,6 +150,7 @@ curl -X POST $D/conversas -d '{"assunto":"…","modo":"resposta","rodadas":2}'
 curl -X POST $D/conversas/<id>/mensagens -d '{"texto":"@Cética e o aluguel?"}'
 curl -X POST $D/conversas/<id>/sintetizar
 curl -X POST $D/conversas/<id>/parar
+curl -X POST $D/conversas/<id>/humano -d '{"acao":"aprovar","texto":"siga"}'   # aprovar · mudar · encerrar
 curl -OJ $D/conversas/<id>/saidas/README.md             # baixa o .md gerado
 ```
 

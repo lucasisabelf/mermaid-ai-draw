@@ -7,7 +7,7 @@ const pedido = (over: Partial<Pedido> = {}): Pedido => ({
   conversa: 'c1',
   diagrama: 'd',
   tipo: 'fala',
-  persona: { id: 'n1', nome: 'Cética', prompt: 'p', motor: 'api', modelo: 'claude-opus-5-5', esforco: 'high', papel: 'debatedora', cor: '#000000', ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md' },
+  persona: { id: 'n1', nome: 'Cética', prompt: 'p', motor: 'api', modelo: 'claude-opus-5-5', esforco: 'high', papel: 'debatedora', cor: '#000000', ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir' },
   system: 'Você é a Cética.',
   contexto: 'Assunto: x',
   respondendoA: [],

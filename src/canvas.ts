@@ -110,7 +110,7 @@ export class Canvas {
   /** Soltou um template da paleta (`tpl:<motor>:<papel>`) no canvas. */
   onTemplate: (motor: string, papel: string, at: { x: number; y: number }) => void = () => {};
   /** A persona de cada retângulo (cor e selo "motor · modelo"); sem ela, o retângulo comum. */
-  personaDe: (id: string) => { cor: string; selo: string; inicio?: boolean; saida?: boolean } | undefined = () => undefined;
+  personaDe: (id: string) => { cor: string; selo: string; inicio?: boolean; saida?: boolean; humana?: boolean } | undefined = () => undefined;
   /** Personas com a vez agora: o retângulo brilha. */
   private falando = new Set<string>();
   private edgeLayer = el('g');
@@ -728,7 +728,7 @@ export class Canvas {
     const selected = this.isSelected('node', n.id);
     const persona = this.personaDe(n.id);
     const g = el('g', {
-      class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}${persona ? ' persona' : ''}${persona?.inicio ? ' inicio' : ''}${persona?.saida ? ' saida' : ''}${this.falando.has(n.id) ? ' falando' : ''}`,
+      class: `node${selected ? ' selected' : ''}${n.active ? ' active' : ''}${persona ? ' persona' : ''}${persona?.inicio ? ' inicio' : ''}${persona?.saida ? ' saida' : ''}${persona?.humana ? ' humana' : ''}${this.falando.has(n.id) ? ' falando' : ''}`,
       'data-node': n.id,
       transform: `translate(${n.x - w / 2} ${n.y - h / 2})`,
     });
@@ -767,6 +767,13 @@ export class Canvas {
       el('title', {}, play).textContent = 'Bloco de início: a conversa começa aqui';
       el('circle', { cx: 0, cy: 0, r: 10, class: 'inicio-badge-bg' }, play);
       el('path', { d: 'M -3 -5 L 5 0 L -3 5 Z', class: 'inicio-badge-icon' }, play);
+    }
+    // Persona humana: uma pessoa no canto direito (a conversa espera você).
+    if (persona?.humana) {
+      const eu = el('g', { class: 'saida-badge', transform: `translate(${w} 0)` }, g);
+      el('title', {}, eu).textContent = 'Persona humana: a conversa espera a sua resposta';
+      el('circle', { cx: 0, cy: 0, r: 10, class: 'saida-badge-bg' }, eu);
+      el('path', { d: 'M 0 -6 a 2.6 2.6 0 1 0 0.01 0 Z M -5 6 a 5 4.5 0 0 1 10 0 Z', class: 'saida-badge-icon' }, eu);
     }
     // Persona de saída: um documento no canto direito (roda no fim e gera o .md).
     if (persona?.saida) {

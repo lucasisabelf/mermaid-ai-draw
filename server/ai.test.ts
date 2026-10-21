@@ -179,6 +179,32 @@ describe('personas e templates pela API', () => {
     expect(fs.existsSync(path.join(dir, dup, 'personas', `${s}.saida.md`))).toBe(true);
   });
 
+  it('persona humana: a conversa espera, o MCP não pega a vez e a resposta vem pela API', async () => {
+    const { slug, ids } = await montar('Humana', [['otimista', 'ollama'], ['moderadora', 'ollama'], ['cetica', 'ollama']], ['0>1', '1>2']);
+    const h = ids[1];
+    const md = (await call('GET', `/d/${slug}/personas/${h}`)).json.markdown as string;
+    expect((await call('PUT', `/d/${slug}/personas/${h}`, md.replace('```yaml\n', '```yaml\nhumana: true\n'))).json.persona.humana).toBe(true);
+
+    const id = (await call('POST', `/d/${slug}/conversas`, { assunto: 'Lançar?', modo: 'debate', rodadas: 1 })).json.id;
+    for (let i = 0; i < 50 && (await call('GET', `/d/${slug}/conversas/${id}`)).json.status !== 'aguardando'; i++) await new Promise((x) => setTimeout(x, 20));
+    const parada = (await call('GET', `/d/${slug}/conversas/${id}`)).json;
+    expect(parada).toMatchObject({ status: 'aguardando', espera: { persona: h, nome: 'Moderadora' } });
+    expect((await call('GET', `/d/${slug}/conversas`)).json[0].status).toBe('aguardando');
+
+    // O Claude Code (MCP) não recebe a vez humana.
+    const { ferramenta } = await conectarMcp();
+    expect((await ferramenta('proxima_vez', { diagrama: slug, aguardar_s: 0 })).turnos).toEqual([]);
+    expect((await ferramenta('ver_personas', { diagrama: slug })).personas.find((p: any) => p.id === h).humana).toBe(true);
+
+    expect((await call('POST', `/d/${slug}/conversas/${id}/humano`, { acao: 'festa' })).status).toBe(400);
+    expect((await call('POST', `/d/${slug}/conversas/${id}/humano`, { acao: 'aprovar', texto: 'siga' })).status).toBe(202);
+    for (let i = 0; i < 50 && (await call('GET', `/d/${slug}/conversas/${id}`)).json.status !== 'terminada'; i++) await new Promise((x) => setTimeout(x, 20));
+    const fim = (await call('GET', `/d/${slug}/conversas/${id}`)).json;
+    expect(fim.mensagens.map((m: any) => `${m.nome}:${m.tipo}`)).toEqual(['Você:usuario', 'Otimista:fala', 'Moderadora:fala', 'Cética:fala']);
+    expect(fim.mensagens[2].texto).toBe('Aprovado. siga');
+    expect((await call('POST', `/d/${slug}/conversas/${id}/humano`, { acao: 'aprovar' })).status).toBe(409);
+  });
+
   it('mostra o status dos motores', async () => {
     const r = await call('GET', '/motores');
     expect(r.json.map((m: any) => [m.nome, m.ok])).toEqual([

@@ -54,6 +54,12 @@ export interface Persona {
   saida: boolean;
   /** O nome do .md que a persona de saída gera (padrão saida.md). */
   arquivo: string;
+  /** Persona humana: é você; na vez dela, a conversa espera a sua resposta (sem motor). */
+  humana: boolean;
+  /** Minutos de espera da persona humana; sem prazo, espera para sempre. */
+  prazo?: number;
+  /** O que fazer quando o prazo vence: seguir sem resposta ou encerrar a conversa. */
+  aoVencer: 'seguir' | 'encerrar';
 }
 
 /** Template de quem é marcada como saída e ainda não tem o seu (personas/<id>.saida.md). */
@@ -126,6 +132,8 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
   }
   if (y.inicio !== undefined && typeof y.inicio !== 'boolean') invalido('"inicio" deve ser true ou false.');
   if (y.saida !== undefined && typeof y.saida !== 'boolean') invalido('"saida" deve ser true ou false.');
+  if (y.humana !== undefined && typeof y.humana !== 'boolean') invalido('"humana" deve ser true ou false.');
+  if (y.prazo !== undefined && (typeof y.prazo !== 'number' || !(y.prazo > 0))) invalido('"prazo" deve ser um número de minutos maior que zero.');
   if (y.arquivo !== undefined && (typeof y.arquivo !== 'string' || !ARQUIVO_RE.test(y.arquivo) || y.arquivo.includes('..'))) {
     invalido('"arquivo" deve ser só o nome de um .md, como "README.md".');
   }
@@ -142,6 +150,9 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
     inicio: y.inicio === true,
     saida: y.saida === true,
     arquivo: (y.arquivo as string | undefined) ?? 'saida.md',
+    humana: y.humana === true,
+    ...(y.prazo !== undefined ? { prazo: y.prazo as number } : {}),
+    aoVencer: umDe('aoVencer', y.aoVencer, ['seguir', 'encerrar'] as const, 'seguir'),
   };
 }
 
@@ -151,6 +162,9 @@ export function renderPersona(p: Persona): string {
   if (p.inicio) opcoes.inicio = true;
   if (p.saida) opcoes.saida = true;
   if (p.arquivo !== 'saida.md') opcoes.arquivo = p.arquivo;
+  if (p.humana) opcoes.humana = true;
+  if (p.prazo !== undefined) opcoes.prazo = p.prazo;
+  if (p.aoVencer !== 'seguir') opcoes.aoVencer = p.aoVencer;
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${stringify(opcoes)}\`\`\`\n`;
 }
 
@@ -301,5 +315,5 @@ export function carregarTemplates(dir: string): Template[] {
 }
 
 export function personaDoTemplate(t: Template, id: string, motor: MotorNome, nome = t.titulo): Persona {
-  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md' };
+  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir' };
 }

@@ -96,3 +96,24 @@ describe('persona de saída no chat', () => {
     expect(urlDaSaida('/api/d/x', 'c1', 'Plano de ação.md')).toBe('/api/d/x/conversas/c1/saidas/Plano%20de%20a%C3%A7%C3%A3o.md');
   });
 });
+
+describe('persona humana no chat', () => {
+  it('a vez humana vira a espera (status aguardando) e some quando ela responde', () => {
+    let s = aplicar(inicial(), { type: 'chat.inicio', conversa: 'c1', assunto: 'x', modo: 'debate' });
+    const espera = { turno: 't9', persona: 'h', nome: 'Você', tipo: 'fala', contexto: 'Assunto: x\n\nSua vez: responda a A.', em: '2026-10-21T00:00:00Z' };
+    s = aplicar(s, { type: 'chat.turno', conversa: 'c1', turno: 't9', persona: 'h', nome: 'Você', tipo: 'fala', status: 'aguardando', espera });
+    expect(s.status).toBe('aguardando');
+    expect(s.espera).toEqual(espera);
+    expect(s.pendentes).toEqual([]);
+
+    s = aplicar(s, { type: 'chat.turno', conversa: 'c1', turno: 't9', persona: 'h', nome: 'Você', tipo: 'fala', status: 'fim' });
+    expect(s.espera).toBeUndefined();
+    expect(s.status).toBe('rodando');
+
+    // Ao abrir uma conversa salva que está esperando.
+    const c = { id: 'c2', assunto: 'y', modo: 'debate', status: 'aguardando', mensagens: [], espera };
+    expect(aplicar(inicial(), { type: 'carregar', conversa: c })).toMatchObject({ status: 'aguardando', espera });
+    // O fim (parar) limpa a espera.
+    expect(aplicar(aplicar(inicial(), { type: 'carregar', conversa: c }), { type: 'chat.fim', conversa: 'c2', status: 'parada' }).espera).toBeUndefined();
+  });
+});

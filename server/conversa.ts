@@ -83,7 +83,25 @@ export interface Mensagem {
   uso?: Uso;
 }
 
-export type Status = 'rodando' | 'terminada' | 'parada';
+export type Status = 'rodando' | 'aguardando' | 'terminada' | 'parada';
+
+/** A vez de uma persona humana: a conversa espera a resposta do usuário. */
+export interface Espera {
+  turno: string;
+  persona: string;
+  nome: string;
+  tipo: TipoPedido;
+  contexto: string;
+  /** No debate: onde a rodada parou (para retomar depois de reiniciar o servidor). */
+  posicao?: { rodada: number; indice: number };
+  em: string;
+}
+
+export interface RespostaHumana {
+  acao: 'aprovar' | 'mudar' | 'encerrar';
+  texto?: string;
+}
+const ACOES_HUMANAS = ['aprovar', 'mudar', 'encerrar'];
 
 export interface Conversa {
   id: string;
@@ -95,6 +113,8 @@ export interface Conversa {
   mensagens: Mensagem[];
   /** A síntese ou a entrega final, quando houver. */
   resposta?: string;
+  /** A vez humana em espera (status "aguardando"). */
+  espera?: Espera;
   /** Turnos em andamento (só na conversa viva; não é salvo): quem abre a página no meio vê quem está pensando. */
   pendentes?: { turno: string; persona: string; nome: string; tipo: TipoPedido; motor: MotorNome }[];
   criadaEm: string;
@@ -120,8 +140,12 @@ export interface OpcoesConversas {
 interface Viva {
   dados: Conversa;
   parar: AbortController;
-  /** Pessoas chamadas com @ no chat, para falar antes da próxima vez. */
-  chamadas: string[];
+  /** Quem fala antes da próxima vez: chamadas com @ no chat (respondendo ao usuário) ou de volta por um pedido de mudança. */
+  chamadas: { id: string; a: string[] }[];
+  /** Respostas que a persona humana em espera aguarda (turno → resolver). */
+  esperas: Map<string, (r: RespostaHumana & { venceu?: boolean }) => void>;
+  /** No debate: a rodada e a vez atuais. */
+  posicao?: { rodada: number; indice: number };
   sintetizarJa: boolean;
   turnos: number;
   execucao: Promise<void>;
@@ -129,6 +153,8 @@ interface Viva {
 }
 
 class Parada extends Error {}
+/** O usuário (ou o prazo dele) encerrou a conversa na vez humana. */
+class Encerrada extends Error {}
 
 const agora = () => new Date().toISOString();
 
@@ -158,7 +184,7 @@ export function createConversas(opts: OpcoesConversas) {
   const viva = (id: string): Viva => {
     let v = vivas.get(id);
     if (!v) {
-      v = { dados: carregar(id), parar: new AbortController(), chamadas: [], sintetizarJa: false, turnos: 0, execucao: Promise.resolve(), emAndamento: new Map() };
+      v = { dados: carregar(id), parar: new AbortController(), chamadas: [], esperas: new Map(), sintetizarJa: false, turnos: 0, execucao: Promise.resolve(), emAndamento: new Map() };
       vivas.set(id, v);
     }
     return v;
@@ -259,6 +285,7 @@ export function createConversas(opts: OpcoesConversas) {
       delegaveis: (t.delegaveis ?? []).map((id) => ({ id, nome: nomeDe(d, id) })),
       signal: v.parar.signal,
     };
+    if (persona.humana) return vezHumana(v, persona, turnoId, t, respondendoA, d);
     const base = { turno: turnoId, persona: personaId, nome: persona.nome, tipo: t.tipo, motor: persona.motor };
     emitir(v.dados, { type: 'chat.turno', ...base, status: 'pensando', respondendoA, arestas: arestas(d, respondendoA, personaId) });
     v.turnos++;
@@ -288,13 +315,58 @@ export function createConversas(opts: OpcoesConversas) {
     }
   };
 
+  /** O texto que entra na conversa pela resposta do usuário na vez humana. */
+  const textoHumano = (r: RespostaHumana & { venceu?: boolean }) => {
+    const t = r.texto?.trim() ?? '';
+    if (r.venceu) return '(sem resposta no prazo: a conversa seguiu)';
+    if (r.acao === 'mudar') return `Pedido de mudança: ${t || 'refaça'}`;
+    if (r.acao === 'encerrar') return t || 'Encerrar a conversa.';
+    return t ? `Aprovado. ${t}` : 'Aprovado.';
+  };
+
+  /** A vez de uma persona humana: a conversa para e espera a resposta (ou o prazo). */
+  const vezHumana = async (v: Viva, persona: Persona, turnoId: string, t: Omit<Turno, 'id'>, respondendoA: string[], d: Diagram) => {
+    const espera: Espera = { turno: turnoId, persona: persona.id, nome: persona.nome, tipo: t.tipo, contexto: t.contexto, ...(v.posicao ? { posicao: { ...v.posicao } } : {}), em: agora() };
+    v.dados.status = 'aguardando';
+    v.dados.espera = espera;
+    salvar(v.dados);
+    const base = { turno: turnoId, persona: persona.id, nome: persona.nome, tipo: t.tipo };
+    emitir(v.dados, { type: 'chat.turno', ...base, status: 'aguardando', respondendoA, arestas: arestas(d, respondendoA, persona.id), espera });
+    v.turnos++;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let r: RespostaHumana & { venceu?: boolean };
+    try {
+      r = await Promise.race([
+        new Promise<RespostaHumana & { venceu?: boolean }>((resolve) => {
+          v.esperas.set(turnoId, resolve);
+          if (persona.prazo) {
+            timer = setTimeout(() => resolve({ acao: persona.aoVencer === 'encerrar' ? 'encerrar' : 'aprovar', venceu: true }), persona.prazo * 60_000);
+          }
+        }),
+        cancelado(v.parar.signal),
+      ]);
+    } finally {
+      clearTimeout(timer);
+      v.esperas.delete(turnoId);
+      v.dados.espera = undefined;
+      if (v.dados.status === 'aguardando') v.dados.status = 'rodando';
+    }
+    emitir(v.dados, { type: 'chat.turno', ...base, status: 'fim' });
+    if (r.acao === 'encerrar') {
+      if (!r.venceu) registrar(v, { tipo: t.tipo === 'execucao' ? 'resultado' : 'fala', nome: persona.nome, persona: persona.id, turno: turnoId, texto: textoHumano(r) });
+      throw new Encerrada(r.venceu ? `O prazo de ${persona.nome} venceu e a conversa foi encerrada.` : `Conversa encerrada por ${persona.nome}.`);
+    }
+    // Pedir mudança: quem falou antes responde de novo, ao pedido.
+    if (r.acao === 'mudar') for (const p of respondendoA.filter((x) => x !== 'usuario')) v.chamadas.push({ id: p, a: [persona.id] });
+    return { resposta: { texto: textoHumano(r) } as Resposta, persona, turno: turnoId };
+  };
+
   const mensagemDe = (r: { resposta: Resposta; persona: Persona; turno: string }, tipo: TipoMensagem, extra: Partial<Mensagem> = {}) => ({
     tipo,
     nome: r.persona.nome,
     persona: r.persona.id,
     turno: r.turno,
-    motor: r.persona.motor,
-    modelo: r.persona.modelo,
+    ...(r.persona.humana ? {} : { motor: r.persona.motor, modelo: r.persona.modelo }),
     texto: r.resposta.texto.trim(),
     uso: r.resposta.uso,
     ...extra,
@@ -335,20 +407,27 @@ export function createConversas(opts: OpcoesConversas) {
     }
   };
 
-  /** As personas chamadas com @ falam antes da próxima vez. */
+  /** As personas chamadas (com @, ou de volta por um pedido de mudança) falam antes da próxima vez. */
   const atenderChamadas = async (v: Viva) => {
-    while (v.chamadas.length) await fala(v, v.chamadas.shift()!, ['usuario']);
+    while (v.chamadas.length) {
+      const c = v.chamadas.shift()!;
+      await fala(v, c.id, c.a);
+    }
   };
 
-  const debate = async (v: Viva) => {
-    rodadas: for (let r = 0; r < v.dados.rodadas; r++) {
-      for (const id of ordem(opts.ler())) {
+  /** As rodadas, a partir de `desde` (para retomar depois de reiniciar, na vez seguinte à humana). */
+  const debate = async (v: Viva, desde = { rodada: 0, indice: 0 }) => {
+    rodadas: for (let r = desde.rodada; r < v.dados.rodadas; r++) {
+      const seq = ordem(opts.ler());
+      for (let i = r === desde.rodada ? desde.indice : 0; i < seq.length; i++) {
+        v.posicao = { rodada: r, indice: i };
         await atenderChamadas(v);
         if (v.sintetizarJa) break rodadas;
-        await fala(v, id);
+        await fala(v, seq[i]);
         if (v.sintetizarJa) break rodadas;
       }
     }
+    v.posicao = undefined;
     await atenderChamadas(v);
     if (v.dados.modo === 'resposta' || v.sintetizarJa) {
       v.sintetizarJa = false;
@@ -459,11 +538,14 @@ export function createConversas(opts: OpcoesConversas) {
       try {
         await fn();
         // @menções feitas durante a última vez (ex.: a síntese) ainda são respondidas.
-        while (v.chamadas.length) await fala(v, v.chamadas.shift()!, ['usuario']);
+        await atenderChamadas(v);
         v.dados.status = 'terminada';
       } catch (err) {
         if (err instanceof Parada) return;
-        if (err instanceof LimiteAtingido) {
+        if (err instanceof Encerrada) {
+          sistema(v, err.message);
+          v.dados.status = 'terminada';
+        } else if (err instanceof LimiteAtingido) {
           sistema(v, `A conversa atingiu o limite de ${limite} turnos e foi encerrada.`);
           v.dados.status = 'terminada';
         } else {
@@ -498,7 +580,7 @@ export function createConversas(opts: OpcoesConversas) {
       if (!d.nodes.length) throw new OpError(400, 'O diagrama não tem nenhuma persona: arraste um template para o canvas.');
 
       const dados: Conversa = { id: `c-${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`, diagrama: opts.diagrama, assunto, modo, rodadas, status: 'rodando', mensagens: [], criadaEm: agora(), atualizadaEm: agora() };
-      const v: Viva = { dados, parar: new AbortController(), chamadas: [], sintetizarJa: false, turnos: 0, execucao: Promise.resolve(), emAndamento: new Map() };
+      const v: Viva = { dados, parar: new AbortController(), chamadas: [], esperas: new Map(), sintetizarJa: false, turnos: 0, execucao: Promise.resolve(), emAndamento: new Map() };
       vivas.set(dados.id, v);
       emitir(dados, { type: 'chat.inicio', assunto, modo, rodadas, ordem: ordem(d).map((id) => nomeDe(d, id)) });
       registrar(v, { tipo: 'usuario', nome: 'Você', texto: assunto });
@@ -517,8 +599,8 @@ export function createConversas(opts: OpcoesConversas) {
       const d = opts.ler();
       const alvo = mencionada(t, d.nodes.map((n) => ({ id: n.id, nome: n.text })));
       const msg = registrar(v, { tipo: 'usuario', nome: 'Você', texto: t });
-      if (v.dados.status === 'rodando') {
-        if (alvo) v.chamadas.push(alvo);
+      if (v.dados.status === 'rodando' || v.dados.status === 'aguardando') {
+        if (alvo) v.chamadas.push({ id: alvo, a: ['usuario'] });
       } else {
         // Conversa encerrada: responde a mencionada, a moderadora ou a última que falou.
         const seq = ordem(d);
@@ -539,7 +621,7 @@ export function createConversas(opts: OpcoesConversas) {
     /** Pede a resposta polida agora: depois da vez em andamento (ou já, se a conversa acabou). */
     sintetizar(id: string) {
       const v = viva(id);
-      if (v.dados.status === 'rodando') v.sintetizarJa = true;
+      if (v.dados.status === 'rodando' || v.dados.status === 'aguardando') v.sintetizarJa = true;
       else {
         v.parar = new AbortController();
         v.turnos = 0;
@@ -549,10 +631,39 @@ export function createConversas(opts: OpcoesConversas) {
 
     parar(id: string) {
       const v = viva(id);
-      if (v.dados.status !== 'rodando') return;
+      if (v.dados.status !== 'rodando' && v.dados.status !== 'aguardando') return;
       v.dados.status = 'parada';
+      v.dados.espera = undefined;
       v.parar.abort();
       sistema(v, 'Conversa parada.');
+    },
+
+    /** A resposta do usuário na vez da persona humana (aprovar, pedir mudança ou encerrar). */
+    responderHumano(id: string, r: RespostaHumana) {
+      const v = viva(id);
+      const e = v.dados.espera;
+      if (v.dados.status !== 'aguardando' || !e) throw new OpError(409, 'A conversa não está esperando a sua resposta.');
+      if (!ACOES_HUMANAS.includes(r?.acao)) throw new OpError(400, `"acao" deve ser ${ACOES_HUMANAS.join(', ')}.`);
+      const resolver = v.esperas.get(e.turno);
+      if (resolver) return resolver(r);
+      // O servidor reiniciou durante a espera: registra a resposta e retoma do ponto salvo.
+      v.dados.espera = undefined;
+      v.parar = new AbortController();
+      v.turnos = 0;
+      executar(v, async () => {
+        const d = opts.ler();
+        const persona = opts.persona(e.persona, nomeDe(d, e.persona));
+        registrar(v, { tipo: e.tipo === 'execucao' ? 'resultado' : 'fala', nome: persona.nome, persona: e.persona, turno: e.turno, texto: textoHumano(r) });
+        if (r.acao === 'encerrar') throw new Encerrada(`Conversa encerrada por ${persona.nome}.`);
+        if (v.dados.modo === 'tarefa') {
+          sistema(v, 'A tarefa não pode continuar depois que o servidor reiniciou: a sua resposta ficou registrada.');
+          return;
+        }
+        if (r.acao === 'mudar') for (const p of predecessores(rodada(d), e.persona)) v.chamadas.push({ id: p, a: [e.persona] });
+        const pos = e.posicao ?? { rodada: v.dados.rodadas, indice: 0 };
+        await debate(v, { rodada: pos.rodada, indice: pos.indice + 1 });
+        await gerarSaidas(v);
+      });
     },
 
     obter(id: string): Conversa {

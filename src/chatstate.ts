@@ -32,11 +32,22 @@ export interface Pendente {
   texto: string;
 }
 
+/** A vez da persona humana: a conversa espera a resposta do usuário. */
+export interface Espera {
+  turno: string;
+  persona: string;
+  nome: string;
+  tipo: string;
+  contexto: string;
+  em: string;
+}
+
 export interface ChatState {
   conversa?: string;
   assunto?: string;
   modo?: string;
-  status: 'vazio' | 'rodando' | 'terminada' | 'parada';
+  status: 'vazio' | 'rodando' | 'aguardando' | 'terminada' | 'parada';
+  espera?: Espera;
   mensagens: MensagemView[];
   pendentes: Pendente[];
   resposta?: string;
@@ -51,7 +62,7 @@ export function aplicar(s: ChatState, ev: any): ChatState {
   if (ev.type === 'carregar') {
     const c = ev.conversa;
     const pendentes: Pendente[] = (c.pendentes ?? []).map((p: Omit<Pendente, 'texto'>) => ({ ...p, texto: '' }));
-    return { conversa: c.id, assunto: c.assunto, modo: c.modo, status: c.status, mensagens: [...c.mensagens], pendentes, resposta: c.resposta, custo: somaCusto(c.mensagens) };
+    return { conversa: c.id, assunto: c.assunto, modo: c.modo, status: c.status, espera: c.espera, mensagens: [...c.mensagens], pendentes, resposta: c.resposta, custo: somaCusto(c.mensagens) };
   }
   if (ev.type === 'chat.inicio') {
     return { ...inicial(), conversa: ev.conversa, assunto: ev.assunto, modo: ev.modo, status: 'rodando' };
@@ -60,6 +71,8 @@ export function aplicar(s: ChatState, ev: any): ChatState {
   if (!s.conversa || ev.conversa !== s.conversa) return s;
   switch (ev.type) {
     case 'chat.turno': {
+      if (ev.status === 'aguardando') return { ...s, status: 'aguardando', espera: ev.espera };
+      if (s.espera?.turno === ev.turno) s = { ...s, status: 'rodando', espera: undefined };
       const sem = s.pendentes.filter((p) => p.turno !== ev.turno);
       if (ev.status !== 'pensando') return { ...s, pendentes: sem };
       return { ...s, status: 'rodando', pendentes: [...sem, { turno: ev.turno, persona: ev.persona, nome: ev.nome, tipo: ev.tipo, motor: ev.motor, texto: '' }] };
@@ -74,7 +87,7 @@ export function aplicar(s: ChatState, ev: any): ChatState {
       return { ...s, status, mensagens, pendentes: s.pendentes.filter((p) => p.turno !== m.turno), custo: somaCusto(mensagens) };
     }
     case 'chat.fim':
-      return { ...s, status: ev.status, resposta: ev.resposta ?? s.resposta, pendentes: [] };
+      return { ...s, status: ev.status, resposta: ev.resposta ?? s.resposta, pendentes: [], espera: undefined };
   }
   return s;
 }

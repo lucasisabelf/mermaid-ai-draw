@@ -75,7 +75,7 @@ function servidor(deps: DepsMcp) {
       const { diagrama: d, personas } = deps.abrir(diagrama);
       const nome = (id: string) => d.nodes.find((n) => n.id === id)?.text ?? id;
       return json({
-        personas: personas.map((p) => ({ id: p.id, nome: p.nome, motor: p.motor, modelo: p.modelo, papel: p.papel, inicio: p.inicio, saida: p.saida, arquivo: p.saida ? p.arquivo : undefined })),
+        personas: personas.map((p) => ({ id: p.id, nome: p.nome, motor: p.motor, modelo: p.modelo, papel: p.papel, inicio: p.inicio, saida: p.saida, arquivo: p.saida ? p.arquivo : undefined, humana: p.humana })),
         setas: d.edges.filter((e) => e.from !== e.to).map((e) => `${nome(e.from)} → ${nome(e.to)}`),
       });
     }),

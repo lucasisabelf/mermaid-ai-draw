@@ -31,6 +31,16 @@
             <span class="chat-custo" id="chat-custo" title="Custo desta conversa (motor API)"></span>
           </div>
           <div class="chat-mensagens" id="chat-mensagens" aria-live="polite"></div>
+          <form class="chat-espera" id="chat-espera" hidden>
+            <div class="ce-titulo" id="ce-titulo">Sua vez</div>
+            <div class="ce-pedido" id="ce-pedido"></div>
+            <textarea id="ce-texto" rows="2" placeholder="Sua resposta (opcional ao aprovar)…" aria-label="Sua resposta"></textarea>
+            <div class="chat-opcoes">
+              <button type="button" class="danger" data-acao="encerrar" title="Encerra a conversa aqui">Encerrar</button>
+              <button type="button" data-acao="mudar" title="Quem falou antes refaz, considerando o seu pedido">Pedir mudança</button>
+              <button type="submit" class="primary" data-acao="aprovar">Aprovar</button>
+            </div>
+          </form>
           <form class="chat-novo" id="chat-novo">
             <textarea id="chat-assunto" rows="3" placeholder="Assunto, pergunta ou tarefa para as personas…" aria-label="Assunto"></textarea>
             <div class="chat-opcoes">
@@ -95,6 +105,18 @@
           <label class="pp-inicio" title="Não fala nas rodadas: quando todas terminam, ela roda uma vez, preenche o template e gera um .md para baixar no chat.">
             <input type="checkbox" id="pp-saida" /> Persona de saída (roda no fim e gera um .md)
           </label>
+          <label class="pp-inicio" title="É você: na vez dela, a conversa pausa e espera a sua resposta no chat (Aprovar, Pedir mudança ou Encerrar). Não usa motor.">
+            <input type="checkbox" id="pp-humana" /> Persona humana (a conversa espera você)
+          </label>
+          <div class="pp-saida" id="pp-humana-box" hidden>
+            <label>Prazo (min) <input id="pp-prazo" type="number" min="1" step="1" placeholder="sem prazo" /></label>
+            <label>Ao vencer
+              <select id="pp-aovencer">
+                <option value="seguir">seguir</option>
+                <option value="encerrar">encerrar</option>
+              </select>
+            </label>
+          </div>
           <div class="pp-saida" id="pp-saida-box" hidden>
             <label>Arquivo gerado <input id="pp-arquivo" spellcheck="false" placeholder="README.md" /></label>
             <button type="button" id="pp-template">Editar template</button>

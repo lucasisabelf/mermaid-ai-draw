@@ -47,6 +47,7 @@ import { ARQUIVO_RE, carregarTemplates, MOTORES, personaDoTemplate, PersonaStore
  *   POST   /api/d/:slug/conversas/:id/sintetizar  pede a resposta polida
  *   POST   /api/d/:slug/conversas/:id/parar
  *   GET    /api/d/:slug/conversas/:id/saidas/:arquivo   baixa o .md que a persona de saída gerou
+ *   POST   /api/d/:slug/conversas/:id/humano      a resposta na vez da persona humana {acao: aprovar|mudar|encerrar, texto?}
  *   /mcp                                          servidor MCP (o Claude Code dá voz às personas "mcp")
  *
  * As rotas antigas sem prefixo (/api/nodes, /api/diagram…) continuam valendo para o primeiro diagrama.
@@ -555,6 +556,11 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
       }
       if (ref && method === 'POST' && acao === 'parar') {
         conversas.parar(ref);
+        return send(res, 202, { ok: true });
+      }
+      if (ref && method === 'POST' && acao === 'humano') {
+        const body = await corpo();
+        conversas.responderHumano(ref, { acao: body.acao as 'aprovar', texto: typeof body.texto === 'string' ? body.texto : undefined });
         return send(res, 202, { ok: true });
       }
       if (ref && method === 'GET' && acao === 'saidas' && parts[3]) {

@@ -18,6 +18,9 @@ export interface PersonaView {
   inicio: boolean;
   saida: boolean;
   arquivo: string;
+  humana: boolean;
+  prazo?: number;
+  aoVencer: 'seguir' | 'encerrar';
 }
 
 const SALVAR_MS = 600;
@@ -31,6 +34,9 @@ export function personaMd(p: PersonaView) {
   if (p.inicio) linhas.push('inicio: true');
   if (p.saida) linhas.push('saida: true');
   if (p.arquivo && p.arquivo !== 'saida.md') linhas.push(`arquivo: ${JSON.stringify(p.arquivo)}`);
+  if (p.humana) linhas.push('humana: true');
+  if (p.prazo) linhas.push(`prazo: ${p.prazo}`);
+  if (p.aoVencer === 'encerrar') linhas.push('aoVencer: encerrar');
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${linhas.join('\n')}\n\`\`\`\n`;
 }
 
@@ -51,6 +57,9 @@ export class PersonaPanel {
     inicio: $<HTMLInputElement>('#pp-inicio'),
     saida: $<HTMLInputElement>('#pp-saida'),
     arquivo: $<HTMLInputElement>('#pp-arquivo'),
+    humana: $<HTMLInputElement>('#pp-humana'),
+    prazo: $<HTMLInputElement>('#pp-prazo'),
+    aoVencer: $<HTMLSelectElement>('#pp-aovencer'),
   };
   private template = new TemplateEditor();
 
@@ -120,9 +129,19 @@ export class PersonaPanel {
     c.saida.checked = p.saida;
     if (document.activeElement !== c.arquivo) c.arquivo.value = p.arquivo;
     $('#pp-saida-box').hidden = !p.saida;
+    c.humana.checked = p.humana;
+    if (document.activeElement !== c.prazo) c.prazo.value = p.prazo ? String(p.prazo) : '';
+    c.aoVencer.value = p.aoVencer;
+    this.mostrarHumana(p.humana);
     if (document.activeElement !== c.prompt) c.prompt.value = p.prompt;
     this.preencherModelos();
     this.status('');
+  }
+
+  /** A persona humana não usa motor: o prazo aparece e os campos do motor ficam apagados. */
+  private mostrarHumana(humana: boolean) {
+    $('#pp-humana-box').hidden = !humana;
+    this.root.classList.toggle('pp-e-humana', humana);
   }
 
   private preencherModelos() {
@@ -135,8 +154,9 @@ export class PersonaPanel {
   private editar() {
     if (!this.atual) return;
     const c = this.campos;
-    this.atual = { ...this.atual, motor: c.motor.value as PersonaView['motor'], modelo: c.modelo.value.trim(), papel: c.papel.value, esforco: c.esforco.value, cor: c.cor.value, prompt: c.prompt.value, inicio: c.inicio.checked, saida: c.saida.checked, arquivo: c.arquivo.value.trim() || 'saida.md' };
+    this.atual = { ...this.atual, motor: c.motor.value as PersonaView['motor'], modelo: c.modelo.value.trim(), papel: c.papel.value, esforco: c.esforco.value, cor: c.cor.value, prompt: c.prompt.value, inicio: c.inicio.checked, saida: c.saida.checked, arquivo: c.arquivo.value.trim() || 'saida.md', humana: c.humana.checked, prazo: Number(c.prazo.value) > 0 ? Number(c.prazo.value) : undefined, aoVencer: c.aoVencer.value as 'seguir' | 'encerrar' };
     $('#pp-saida-box').hidden = !c.saida.checked;
+    this.mostrarHumana(c.humana.checked);
     this.sujo = true;
     this.status('alterações não salvas…');
     clearTimeout(this.timer);
