@@ -1436,3 +1436,28 @@ button.icon {
 .pp-e-humana .pp-grid label:nth-child(-n + 4) {
   opacity: 0.45;
 }
+
+/* Pós-fluxo: o link para a outra conversa e a escolha do diagrama no painel. */
+.msg-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.msg-link:hover {
+  text-decoration: underline;
+}
+
+.pp-depois {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.pp-depois[hidden] {
+  display: none;
+}

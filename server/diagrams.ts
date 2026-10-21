@@ -196,6 +196,10 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
           fs.mkdirSync(pasta, { recursive: true });
           fs.writeFileSync(path.join(pasta, arquivo), `${texto}\n`);
         },
+        iniciarOutro: (destino, entrada, interno) => {
+          if (!isDiagram(destino)) fail(404, `Diagrama "${destino}" não encontrado.`);
+          return ai(destino).conversas.iniciar(entrada, interno);
+        },
       });
       ais.set(slug, (x = { personas, conversas }));
     }

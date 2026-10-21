@@ -19,6 +19,8 @@ export interface MensagemView {
   respondendoA?: string[];
   /** Na saída: o .md gerado, para baixar. */
   arquivo?: string;
+  /** Pós-fluxo: a outra conversa (a disparada, ou a de origem). */
+  link?: { diagrama: string; conversa: string };
   uso?: { entrada?: number; saida?: number; custo?: number; tokensPorSegundo?: number };
 }
 
@@ -96,6 +98,9 @@ export function aplicar(s: ChatState, ev: any): ChatState {
 export function saidasDe(s: ChatState) {
   return s.mensagens.filter((m) => m.tipo === 'saida' && m.arquivo).map((m) => ({ id: m.id, nome: m.nome, arquivo: m.arquivo!, texto: m.texto }));
 }
+
+/** Abre o diagrama já na conversa (o chat lê o ?c=). */
+export const urlDaConversa = (diagrama: string, conversa: string) => `?d=${encodeURIComponent(diagrama)}&c=${encodeURIComponent(conversa)}`;
 
 /** Onde baixar o .md gerado. */
 export const urlDaSaida = (api: string, conversa: string, arquivo: string) => `${api}/conversas/${encodeURIComponent(conversa)}/saidas/${encodeURIComponent(arquivo)}`;

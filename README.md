@@ -97,6 +97,8 @@ Marque **Persona de saída** no painel (no yaml: `saida: true` e `arquivo: READM
 - **Template:** fica à parte, em `personas/<id>.saida.md`. Edite pelo botão **Editar template** do painel, que mexe só no template, sem tocar no prompt nem no yaml. Troque cada `{{marcação}}` pelo que ela deve escrever.
 - **No canvas:** ela mostra um ícone de documento e o selo `Saída · README.md`.
 
+**Pós-fluxo:** a persona de saída pode iniciar outro diagrama quando termina. No painel, em **Ao terminar, iniciar** (yaml: `depois: {diagrama, modo, rodadas, prefixo}`), o `.md` gerado vira o assunto da conversa seguinte. As duas conversas ficam ligadas por links no chat (`?d=<diagrama>&c=<conversa>` abre direto nela), e a cadeia tem limite de 3 fluxos.
+
 ### Persona humana
 
 Marque **Persona humana (a conversa espera você)** no painel (no yaml: `humana: true`). Ela é você e não usa motor.

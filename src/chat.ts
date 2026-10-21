@@ -1,4 +1,4 @@
-import { aplicar, formatarCusto, inicial, sugerirMencoes, urlDaSaida, type ChatState, type Espera, type MensagemView } from './chatstate';
+import { aplicar, formatarCusto, inicial, sugerirMencoes, urlDaConversa, urlDaSaida, type ChatState, type Espera, type MensagemView } from './chatstate';
 
 /**
  * O chat da lateral esquerda: começa uma conversa entre as personas (debate, resposta ou tarefa),
@@ -95,7 +95,10 @@ export class ChatPanel {
     this.historicoEl.addEventListener('change', () => void this.abrir(this.historicoEl.value));
     void this.atualizarMotores();
     window.setInterval(() => void this.atualizarMotores(), 10_000);
-    void this.atualizarHistorico(true);
+    // ?c=<conversa> na URL (link do pós-fluxo): abre direto nela.
+    const pedida = new URLSearchParams(location.search).get('c');
+    if (pedida) void this.abrir(pedida);
+    void this.atualizarHistorico(!pedida);
     this.render();
   }
 
@@ -290,7 +293,7 @@ export class ChatPanel {
 
   // ---- desenho ---------------------------------------------------------------------
 
-  private bolha(m: { nome: string; tipo: string; texto: string; persona?: string; motor?: string; modelo?: string; arquivo?: string; uso?: MensagemView['uso'] }, profundidade: number, pendente = false) {
+  private bolha(m: { nome: string; tipo: string; texto: string; persona?: string; motor?: string; modelo?: string; arquivo?: string; link?: MensagemView['link']; uso?: MensagemView['uso'] }, profundidade: number, pendente = false) {
     const cor = this.deps.personas().find((p) => p.id === m.persona)?.cor;
     const el = document.createElement('div');
     el.className = `msg tipo-${m.tipo}${pendente ? ' pendente' : ''}`;
@@ -311,6 +314,11 @@ export class ChatPanel {
     else corpo.innerHTML = formatar(m.texto);
     el.append(head, corpo);
     if (m.tipo === 'saida' && m.arquivo && this.estado.conversa && !pendente) el.append(this.acoesDaSaida(this.estado.conversa, m.arquivo, m.texto));
+    // Pós-fluxo: o link para a conversa disparada (ou para a de origem).
+    if (m.link) {
+      const a = Object.assign(document.createElement('a'), { className: 'msg-link', href: urlDaConversa(m.link.diagrama, m.link.conversa), textContent: `Abrir a conversa em "${m.link.diagrama}" →` });
+      el.append(a);
+    }
     return el;
   }
 

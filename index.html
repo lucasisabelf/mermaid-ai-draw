@@ -121,6 +121,21 @@
             <label>Arquivo gerado <input id="pp-arquivo" spellcheck="false" placeholder="README.md" /></label>
             <button type="button" id="pp-template">Editar template</button>
           </div>
+          <div class="pp-depois" id="pp-depois-box" hidden>
+            <label>Ao terminar, iniciar (pós-fluxo)
+              <select id="pp-depois"><option value="">— nada —</option></select>
+            </label>
+            <div class="pp-saida">
+              <label>Modo
+                <select id="pp-depois-modo">
+                  <option value="debate">debate</option>
+                  <option value="resposta">resposta</option>
+                  <option value="tarefa">tarefa</option>
+                </select>
+              </label>
+              <label>Rodadas <input id="pp-depois-rodadas" type="number" min="1" max="10" value="2" /></label>
+            </div>
+          </div>
           <div class="pp-grid">
             <label>Motor
               <select id="pp-motor">

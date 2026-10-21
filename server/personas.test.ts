@@ -96,6 +96,19 @@ describe('parsePersona', () => {
     }
   });
 
+  it('pós-fluxo: a persona de saída diz qual diagrama iniciar ao terminar', () => {
+    expect(parsePersona('n1', CETICA, 'Cética').depois).toBeUndefined();
+    const md = 'x\n\n```yaml\nsaida: true\ndepois:\n  diagrama: plano-de-acao\n  modo: tarefa\n  rodadas: 1\n  prefixo: Use isto\n```\n';
+    const p = parsePersona('n5', md, 'README');
+    expect(p.depois).toEqual({ diagrama: 'plano-de-acao', modo: 'tarefa', rodadas: 1, prefixo: 'Use isto' });
+    expect(parsePersona('n5', renderPersona(p), 'README')).toEqual(p);
+    // Só o diagrama é obrigatório.
+    expect(parsePersona('n5', 'x\n\n```yaml\ndepois:\n  diagrama: plano\n```\n', 'X').depois).toEqual({ diagrama: 'plano' });
+    for (const ruim of ['depois: plano', 'depois:\n  modo: tarefa', 'depois:\n  diagrama: Plano X', 'depois:\n  diagrama: plano\n  modo: festa', 'depois:\n  diagrama: plano\n  rodadas: 20']) {
+      expect(() => parsePersona('n5', `x\n\n\`\`\`yaml\n${ruim}\n\`\`\`\n`, 'X'), ruim).toThrow(OpError);
+    }
+  });
+
   it('renderPersona e parsePersona fazem ida e volta', () => {
     const p = parsePersona('n2', CETICA, 'Cética');
     expect(parsePersona('n2', renderPersona(p), 'Cética')).toEqual(p);

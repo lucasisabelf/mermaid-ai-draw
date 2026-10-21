@@ -21,6 +21,7 @@ export interface PersonaView {
   humana: boolean;
   prazo?: number;
   aoVencer: 'seguir' | 'encerrar';
+  depois?: { diagrama: string; modo?: string; rodadas?: number; prefixo?: string };
 }
 
 const SALVAR_MS = 600;
@@ -37,6 +38,12 @@ export function personaMd(p: PersonaView) {
   if (p.humana) linhas.push('humana: true');
   if (p.prazo) linhas.push(`prazo: ${p.prazo}`);
   if (p.aoVencer === 'encerrar') linhas.push('aoVencer: encerrar');
+  if (p.depois?.diagrama) {
+    linhas.push('depois:', `  diagrama: ${p.depois.diagrama}`);
+    if (p.depois.modo) linhas.push(`  modo: ${p.depois.modo}`);
+    if (p.depois.rodadas) linhas.push(`  rodadas: ${p.depois.rodadas}`);
+    if (p.depois.prefixo) linhas.push(`  prefixo: ${JSON.stringify(p.depois.prefixo)}`);
+  }
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${linhas.join('\n')}\n\`\`\`\n`;
 }
 
@@ -60,6 +67,9 @@ export class PersonaPanel {
     humana: $<HTMLInputElement>('#pp-humana'),
     prazo: $<HTMLInputElement>('#pp-prazo'),
     aoVencer: $<HTMLSelectElement>('#pp-aovencer'),
+    depois: $<HTMLSelectElement>('#pp-depois'),
+    depoisModo: $<HTMLSelectElement>('#pp-depois-modo'),
+    depoisRodadas: $<HTMLInputElement>('#pp-depois-rodadas'),
   };
   private template = new TemplateEditor();
 
@@ -132,10 +142,23 @@ export class PersonaPanel {
     c.humana.checked = p.humana;
     if (document.activeElement !== c.prazo) c.prazo.value = p.prazo ? String(p.prazo) : '';
     c.aoVencer.value = p.aoVencer;
+    void this.preencherDiagramas(p.depois?.diagrama ?? '');
+    c.depoisModo.value = p.depois?.modo ?? 'debate';
+    c.depoisRodadas.value = String(p.depois?.rodadas ?? 2);
+    $('#pp-depois-box').hidden = !p.saida;
     this.mostrarHumana(p.humana);
     if (document.activeElement !== c.prompt) c.prompt.value = p.prompt;
     this.preencherModelos();
     this.status('');
+  }
+
+  /** Os diagramas para o pós-fluxo (o atual também vale: a cadeia tem limite). */
+  private async preencherDiagramas(escolhido: string) {
+    const lista = (await fetch('/api/diagrams').then((r) => r.json()).catch(() => [])) as { slug: string; name: string }[];
+    const sel = this.campos.depois;
+    sel.replaceChildren(new Option('— nada —', ''), ...lista.map((d) => new Option(d.name, d.slug)));
+    if (escolhido && !lista.some((d) => d.slug === escolhido)) sel.append(new Option(`${escolhido} (não existe)`, escolhido));
+    sel.value = escolhido;
   }
 
   /** A persona humana não usa motor: o prazo aparece e os campos do motor ficam apagados. */
@@ -154,9 +177,10 @@ export class PersonaPanel {
   private editar() {
     if (!this.atual) return;
     const c = this.campos;
-    this.atual = { ...this.atual, motor: c.motor.value as PersonaView['motor'], modelo: c.modelo.value.trim(), papel: c.papel.value, esforco: c.esforco.value, cor: c.cor.value, prompt: c.prompt.value, inicio: c.inicio.checked, saida: c.saida.checked, arquivo: c.arquivo.value.trim() || 'saida.md', humana: c.humana.checked, prazo: Number(c.prazo.value) > 0 ? Number(c.prazo.value) : undefined, aoVencer: c.aoVencer.value as 'seguir' | 'encerrar' };
+    this.atual = { ...this.atual, motor: c.motor.value as PersonaView['motor'], modelo: c.modelo.value.trim(), papel: c.papel.value, esforco: c.esforco.value, cor: c.cor.value, prompt: c.prompt.value, inicio: c.inicio.checked, saida: c.saida.checked, arquivo: c.arquivo.value.trim() || 'saida.md', humana: c.humana.checked, prazo: Number(c.prazo.value) > 0 ? Number(c.prazo.value) : undefined, aoVencer: c.aoVencer.value as 'seguir' | 'encerrar', depois: c.depois.value ? { ...this.atual.depois, diagrama: c.depois.value, modo: c.depoisModo.value, rodadas: Number(c.depoisRodadas.value) || 2 } : undefined };
     $('#pp-saida-box').hidden = !c.saida.checked;
     this.mostrarHumana(c.humana.checked);
+    $('#pp-depois-box').hidden = !c.saida.checked;
     this.sujo = true;
     this.status('alterações não salvas…');
     clearTimeout(this.timer);

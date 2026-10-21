@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aplicar, formatarCusto, inicial, saidasDe, sugerirMencoes, urlDaSaida } from './chatstate';
+import { aplicar, formatarCusto, inicial, saidasDe, sugerirMencoes, urlDaConversa, urlDaSaida } from './chatstate';
 
 const msg = (id: string, over: Record<string, unknown> = {}) => ({
   id,
@@ -115,5 +115,11 @@ describe('persona humana no chat', () => {
     expect(aplicar(inicial(), { type: 'carregar', conversa: c })).toMatchObject({ status: 'aguardando', espera });
     // O fim (parar) limpa a espera.
     expect(aplicar(aplicar(inicial(), { type: 'carregar', conversa: c }), { type: 'chat.fim', conversa: 'c2', status: 'parada' }).espera).toBeUndefined();
+  });
+});
+
+describe('pós-fluxo no chat', () => {
+  it('o link de uma conversa abre o diagrama já nela', () => {
+    expect(urlDaConversa('plano-de-acao', 'c-1')).toBe('?d=plano-de-acao&c=c-1');
   });
 });

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Diagram } from '../src/model.ts';
 import { createConversas, type Motor, type Pedido, type Resposta } from './conversa.ts';
 import type { MotorNome, Persona } from './personas.ts';
@@ -58,7 +58,7 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-function montar(d: Diagram, personas: Record<string, Partial<Persona>>, motores: Partial<Record<MotorNome, Motor>>, limiteTurnos?: number) {
+function montar(d: Diagram, personas: Record<string, Partial<Persona>>, motores: Partial<Record<MotorNome, Motor>>, limiteTurnos?: number, extra: Partial<Parameters<typeof createConversas>[0]> = {}) {
   const pessoa = (id: string, nome: string): Persona => ({
     id,
     nome,
@@ -82,6 +82,7 @@ function montar(d: Diagram, personas: Record<string, Partial<Persona>>, motores:
     limiteTurnos,
     template: (id) => `# Template de ${id}\n\n## Resumo\n`,
     gravarSaida: (conversa, arquivo, texto) => void gravadas.push({ conversa, arquivo, texto }),
+    ...extra,
   });
 }
 
@@ -511,5 +512,56 @@ describe('persona humana', () => {
     const fim = await depois.esperar(c.id);
     expect(fim.status).toBe('terminada');
     expect(falas(fim)).toEqual(['A:fala', 'Você:fala', 'B:fala']);
+  });
+});
+
+describe('pós-fluxo', () => {
+  const comDepois = { saida: true, arquivo: 'README.md', depois: { diagrama: 'plano', modo: 'tarefa' as const, rodadas: 1, prefixo: 'Use este README:' } };
+
+  it('a persona de saída dispara outro diagrama com o .md gerado como assunto', async () => {
+    const iniciarOutro = vi.fn(() => ({ id: 'c-outro' }));
+    const mcp = falso('mcp', (p) => ({ texto: p.tipo === 'saida' ? '# README\n\nPronto.' : 'opina' }));
+    const d = diagrama([['a', 'A'], ['s', 'README']], 'a>s');
+    const conversas = montar(d, { s: comDepois }, { mcp: mcp.motor }, undefined, { iniciarOutro });
+    const c = conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 });
+    const fim = await conversas.esperar(c.id);
+
+    expect(iniciarOutro).toHaveBeenCalledWith('plano', { assunto: 'Use este README:\n\n# README\n\nPronto.', modo: 'tarefa', rodadas: 1 }, { origem: { diagrama: 'teste', conversa: c.id }, profundidade: 1 });
+    expect(fim.mensagens.at(-1)).toMatchObject({ tipo: 'sistema', link: { diagrama: 'plano', conversa: 'c-outro' } });
+    expect(fim.mensagens.at(-1)!.texto).toMatch(/plano/);
+  });
+
+  it('a conversa disparada guarda e mostra de onde veio', async () => {
+    const conversas = montar(diagrama([['a', 'A']], ''), {}, {});
+    const c = conversas.iniciar({ assunto: 'continuação', modo: 'debate', rodadas: 1 }, { origem: { diagrama: 'discovery', conversa: 'c-1' }, profundidade: 2 });
+    expect(c).toMatchObject({ origem: { diagrama: 'discovery', conversa: 'c-1' }, profundidade: 2 });
+    const fim = await conversas.esperar(c.id);
+    expect(fim.mensagens[1]).toMatchObject({ tipo: 'sistema', link: { diagrama: 'discovery', conversa: 'c-1' } });
+  });
+
+  it('limite de encadeamento, parar e diagrama inexistente', async () => {
+    const d = diagrama([['a', 'A'], ['s', 'README']], 'a>s');
+    // No limite (3 fluxos encadeados), não dispara mais.
+    const iniciarOutro = vi.fn(() => ({ id: 'c-outro' }));
+    const noLimite = montar(d, { s: comDepois }, {}, undefined, { iniciarOutro });
+    const f1 = await noLimite.esperar(noLimite.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }, { profundidade: 3 }).id);
+    expect(iniciarOutro).not.toHaveBeenCalled();
+    expect(f1.mensagens.at(-1)!.texto).toMatch(/limite/);
+
+    // Parada antes do fim: nem a saída nem o pós-fluxo rodam.
+    const lento = falso('mcp', (p) => new Promise((_r, reject) => p.signal.addEventListener('abort', () => reject(new Error('x')))));
+    const parada = montar(d, { s: comDepois }, { mcp: lento.motor }, undefined, { iniciarOutro });
+    const c = parada.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 });
+    await espera(10);
+    parada.parar(c.id);
+    await parada.esperar(c.id);
+    expect(iniciarOutro).not.toHaveBeenCalled();
+
+    // O diagrama de destino não existe: erro no chat, sem derrubar a conversa.
+    const quebra = montar(d, { s: comDepois }, {}, undefined, { iniciarOutro: () => { throw new Error('Diagrama "plano" não encontrado.'); } });
+    const f3 = await quebra.esperar(quebra.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    expect(f3.status).toBe('terminada');
+    expect(f3.mensagens.at(-1)).toMatchObject({ tipo: 'erro' });
+    expect(f3.mensagens.at(-1)!.texto).toMatch(/não encontrado/);
   });
 });

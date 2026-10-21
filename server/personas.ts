@@ -60,6 +60,34 @@ export interface Persona {
   prazo?: number;
   /** O que fazer quando o prazo vence: seguir sem resposta ou encerrar a conversa. */
   aoVencer: 'seguir' | 'encerrar';
+  /** Pós-fluxo (persona de saída): o diagrama que começa quando ela termina, com o .md como assunto. */
+  depois?: PosFluxo;
+}
+
+export interface PosFluxo {
+  diagrama: string;
+  modo?: 'debate' | 'resposta' | 'tarefa';
+  rodadas?: number;
+  /** Texto antes do .md no assunto da conversa disparada. */
+  prefixo?: string;
+}
+
+const SLUG_DIAGRAMA_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+function lerPosFluxo(v: unknown): PosFluxo | undefined {
+  if (v === undefined || v === null) return undefined;
+  const msg = '"depois" deve ter o diagrama a iniciar (ex.: depois: {diagrama: plano, modo: tarefa, rodadas: 1}).';
+  if (typeof v !== 'object' || Array.isArray(v)) invalido(msg);
+  const o = v as Record<string, unknown>;
+  if (typeof o.diagrama !== 'string' || !SLUG_DIAGRAMA_RE.test(o.diagrama)) invalido(msg);
+  const p: PosFluxo = { diagrama: o.diagrama as string };
+  if (o.modo !== undefined) p.modo = umDe('depois.modo', o.modo, ['debate', 'resposta', 'tarefa'] as const, 'debate');
+  if (o.rodadas !== undefined) {
+    if (!Number.isInteger(o.rodadas) || (o.rodadas as number) < 1 || (o.rodadas as number) > 10) invalido('"depois.rodadas" deve ser de 1 a 10.');
+    p.rodadas = o.rodadas as number;
+  }
+  if (typeof o.prefixo === 'string' && o.prefixo.trim()) p.prefixo = o.prefixo.trim();
+  return p;
 }
 
 /** Template de quem é marcada como saída e ainda não tem o seu (personas/<id>.saida.md). */
@@ -153,6 +181,7 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
     humana: y.humana === true,
     ...(y.prazo !== undefined ? { prazo: y.prazo as number } : {}),
     aoVencer: umDe('aoVencer', y.aoVencer, ['seguir', 'encerrar'] as const, 'seguir'),
+    ...(y.depois !== undefined ? { depois: lerPosFluxo(y.depois) } : {}),
   };
 }
 
@@ -165,6 +194,7 @@ export function renderPersona(p: Persona): string {
   if (p.humana) opcoes.humana = true;
   if (p.prazo !== undefined) opcoes.prazo = p.prazo;
   if (p.aoVencer !== 'seguir') opcoes.aoVencer = p.aoVencer;
+  if (p.depois) opcoes.depois = p.depois;
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${stringify(opcoes)}\`\`\`\n`;
 }
 

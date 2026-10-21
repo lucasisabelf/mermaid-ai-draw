@@ -80,6 +80,8 @@ export interface Mensagem {
   pai?: string;
   /** Na saída: o nome do .md gerado. */
   arquivo?: string;
+  /** Pós-fluxo: a outra conversa (a disparada, ou a de origem). */
+  link?: { diagrama: string; conversa: string };
   uso?: Uso;
 }
 
@@ -115,6 +117,10 @@ export interface Conversa {
   resposta?: string;
   /** A vez humana em espera (status "aguardando"). */
   espera?: Espera;
+  /** Pós-fluxo: a conversa que disparou esta. */
+  origem?: { diagrama: string; conversa: string };
+  /** Quantos fluxos vieram antes deste na cadeia do pós-fluxo (0 = começou pelo usuário). */
+  profundidade?: number;
   /** Turnos em andamento (só na conversa viva; não é salvo): quem abre a página no meio vê quem está pensando. */
   pendentes?: { turno: string; persona: string; nome: string; tipo: TipoPedido; motor: MotorNome }[];
   criadaEm: string;
@@ -135,7 +141,18 @@ export interface OpcoesConversas {
   template?: (id: string) => string;
   /** Grava o .md que a persona de saída gerou. */
   gravarSaida?: (conversa: string, arquivo: string, texto: string) => void;
+  /** Pós-fluxo: começa a conversa de outro diagrama (lança erro se ele não existe). */
+  iniciarOutro?: (diagrama: string, entrada: { assunto: string; modo: Modo; rodadas: number }, interno: Interno) => { id: string };
 }
+
+/** Só para o pós-fluxo: de onde veio a conversa e o tamanho da cadeia. */
+export interface Interno {
+  origem?: { diagrama: string; conversa: string };
+  profundidade?: number;
+}
+
+/** Quantos fluxos podem se encadear pelo pós-fluxo. */
+const LIMITE_POS_FLUXO = 3;
 
 interface Viva {
   dados: Conversa;
@@ -526,6 +543,24 @@ export function createConversas(opts: OpcoesConversas) {
       const texto = semCerca(r.resposta.texto);
       registrar(v, mensagemDe(r, 'saida', { arquivo: r.persona.arquivo, texto }));
       opts.gravarSaida?.(v.dados.id, r.persona.arquivo, texto);
+      if (r.persona.depois) posFluxo(v, r.persona, texto);
+    }
+  };
+
+  /** A persona de saída terminou: começa a conversa do diagrama seguinte com o .md como assunto. */
+  const posFluxo = (v: Viva, persona: Persona, texto: string) => {
+    const depois = persona.depois!;
+    const profundidade = (v.dados.profundidade ?? 0) + 1;
+    if (profundidade > LIMITE_POS_FLUXO) {
+      sistema(v, `Pós-fluxo para "${depois.diagrama}" não iniciado: o limite é de ${LIMITE_POS_FLUXO} fluxos encadeados.`);
+      return;
+    }
+    try {
+      const assunto = depois.prefixo ? `${depois.prefixo}\n\n${texto}` : texto;
+      const c = opts.iniciarOutro!(depois.diagrama, { assunto, modo: depois.modo ?? 'debate', rodadas: depois.rodadas ?? 2 }, { origem: { diagrama: opts.diagrama, conversa: v.dados.id }, profundidade });
+      registrar(v, { tipo: 'sistema', nome: 'Conversa', texto: `Pós-fluxo: ${persona.nome} iniciou a conversa em "${depois.diagrama}".`, link: { diagrama: depois.diagrama, conversa: c.id } });
+    } catch (err) {
+      registrar(v, { tipo: 'erro', nome: persona.nome, persona: persona.id, texto: `Pós-fluxo para "${depois.diagrama}" falhou: ${(err as Error).message}` });
     }
   };
 
@@ -569,7 +604,7 @@ export function createConversas(opts: OpcoesConversas) {
   });
 
   return {
-    iniciar(entrada: { assunto?: unknown; modo?: unknown; rodadas?: unknown }): Conversa {
+    iniciar(entrada: { assunto?: unknown; modo?: unknown; rodadas?: unknown }, interno: Interno = {}): Conversa {
       const assunto = typeof entrada.assunto === 'string' ? entrada.assunto.trim() : '';
       if (!assunto) throw new OpError(400, 'Escreva o assunto da conversa.');
       const modo = (entrada.modo ?? 'debate') as Modo;
@@ -579,11 +614,12 @@ export function createConversas(opts: OpcoesConversas) {
       const d = opts.ler();
       if (!d.nodes.length) throw new OpError(400, 'O diagrama não tem nenhuma persona: arraste um template para o canvas.');
 
-      const dados: Conversa = { id: `c-${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`, diagrama: opts.diagrama, assunto, modo, rodadas, status: 'rodando', mensagens: [], criadaEm: agora(), atualizadaEm: agora() };
+      const dados: Conversa = { id: `c-${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`, diagrama: opts.diagrama, assunto, modo, rodadas, status: 'rodando', mensagens: [], criadaEm: agora(), atualizadaEm: agora(), ...(interno.origem ? { origem: interno.origem } : {}), ...(interno.profundidade ? { profundidade: interno.profundidade } : {}) };
       const v: Viva = { dados, parar: new AbortController(), chamadas: [], esperas: new Map(), sintetizarJa: false, turnos: 0, execucao: Promise.resolve(), emAndamento: new Map() };
       vivas.set(dados.id, v);
       emitir(dados, { type: 'chat.inicio', assunto, modo, rodadas, ordem: ordem(d).map((id) => nomeDe(d, id)) });
       registrar(v, { tipo: 'usuario', nome: 'Você', texto: assunto });
+      if (interno.origem) registrar(v, { tipo: 'sistema', nome: 'Conversa', texto: `Esta conversa veio do pós-fluxo de "${interno.origem.diagrama}".`, link: interno.origem });
       executar(v, async () => {
         await (modo === 'tarefa' ? tarefa(v) : debate(v));
         await gerarSaidas(v);

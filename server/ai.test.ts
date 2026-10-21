@@ -205,6 +205,25 @@ describe('personas e templates pela API', () => {
     expect((await call('POST', `/d/${slug}/conversas/${id}/humano`, { acao: 'aprovar' })).status).toBe(409);
   });
 
+  it('pós-fluxo: a saída de um diagrama inicia a conversa de outro, com os links entre elas', async () => {
+    const destino = await montar('Plano', [['otimista', 'ollama']], []);
+    const { slug, ids } = await montar('Discovery', [['otimista', 'ollama'], ['redatora', 'ollama']], ['0>1']);
+    const md = (await call('GET', `/d/${slug}/personas/${ids[1]}`)).json.markdown as string;
+    const yaml = `saida: true\narquivo: README.md\ndepois:\n  diagrama: ${destino.slug}\n  modo: debate\n  rodadas: 1\n`;
+    expect((await call('PUT', `/d/${slug}/personas/${ids[1]}`, md.replace('```yaml\n', '```yaml\n' + yaml))).status).toBe(200);
+
+    const id = (await call('POST', `/d/${slug}/conversas`, { assunto: 'Lançar o app', modo: 'debate', rodadas: 1 })).json.id;
+    for (let i = 0; i < 50 && (await call('GET', `/d/${slug}/conversas/${id}`)).json.status !== 'terminada'; i++) await new Promise((x) => setTimeout(x, 20));
+    const link = (await call('GET', `/d/${slug}/conversas/${id}`)).json.mensagens.at(-1).link;
+    expect(link.diagrama).toBe(destino.slug);
+
+    for (let i = 0; i < 50 && (await call('GET', `/d/${destino.slug}/conversas/${link.conversa}`)).json.status !== 'terminada'; i++) await new Promise((x) => setTimeout(x, 20));
+    const outra = (await call('GET', `/d/${destino.slug}/conversas/${link.conversa}`)).json;
+    expect(outra.assunto).toBe('Redatora (ollama)');
+    expect(outra.origem).toEqual({ diagrama: slug, conversa: id });
+    expect(outra.mensagens.map((m: any) => `${m.nome}:${m.tipo}`)).toEqual(['Você:usuario', 'Conversa:sistema', 'Otimista:fala']);
+  });
+
   it('mostra o status dos motores', async () => {
     const r = await call('GET', '/motores');
     expect(r.json.map((m: any) => [m.nome, m.ok])).toEqual([
