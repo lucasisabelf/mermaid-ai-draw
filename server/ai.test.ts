@@ -233,6 +233,11 @@ describe('personas e templates pela API', () => {
     const fim = (await call('GET', `/d/${slug}/conversas/${id}`)).json;
     expect(fim.mensagens.map((m: any) => `${m.nome}:${m.tipo}`)).toEqual(['Você:usuario', 'Otimista:fala', 'Cética:fala', 'Moderadora:memoria']);
     expect(fs.readFileSync(path.join(dir, slug, 'memoria.md'), 'utf8')).toBe('Moderadora (ollama)\n');
+
+    // O Claude Code consulta a memória pelo MCP (busca por palavras, sem LLM).
+    fs.writeFileSync(path.join(dir, slug, 'memoria.md'), '# Memória\n\n## Fatos\n- Aluguel no centro é caro (Cética · c1)\n');
+    const { ferramenta } = await conectarMcp();
+    expect(await ferramenta('recordar', { diagrama: slug, pergunta: 'aluguel' })).toEqual({ itens: [{ sala: 'Fatos', texto: 'Aluguel no centro é caro (Cética · c1)' }] });
   });
 
   it('mostra o status dos motores', async () => {
@@ -301,7 +306,7 @@ describe('MCP: o Claude Code dá voz às personas', () => {
     const { slug, ids } = await montar('Cafeteria', [['otimista', 'mcp'], ['cetica', 'mcp'], ['moderadora', 'mcp']], ['0>1', '1>2']);
     const { client, ferramenta } = await conectarMcp();
     const nomes = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(nomes).toEqual(['iniciar_conversa', 'listar_diagramas', 'parar', 'proxima_vez', 'responder', 'sintetizar', 'ver_conversa', 'ver_personas'].sort());
+    expect(nomes).toEqual(['iniciar_conversa', 'listar_diagramas', 'parar', 'proxima_vez', 'recordar', 'responder', 'sintetizar', 'ver_conversa', 'ver_personas'].sort());
 
     expect((await ferramenta('listar_diagramas')).map((d: any) => d.slug)).toContain(slug);
     const personas = await ferramenta('ver_personas', { diagrama: slug });

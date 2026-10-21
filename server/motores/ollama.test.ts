@@ -9,7 +9,7 @@ const pedido = (modelo = 'qwen2.5:3b'): Pedido => ({
   conversa: 'c1',
   diagrama: 'd',
   tipo: 'fala',
-  persona: { id: 'n1', nome: 'Otimista', prompt: 'p', motor: 'ollama', modelo, esforco: 'medium', papel: 'debatedora', cor: '#000000', ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir', memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000 },
+  persona: { id: 'n1', nome: 'Otimista', prompt: 'p', motor: 'ollama', modelo, esforco: 'medium', papel: 'debatedora', cor: '#000000', ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir', memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000, resumoPara: 'todas' },
   system: 'Você é a Otimista.',
   contexto: 'Assunto: x',
   respondendoA: [],

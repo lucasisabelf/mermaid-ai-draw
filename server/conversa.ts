@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { Diagram } from '../src/model.ts';
 import { OpError } from '../src/ops.ts';
 import { MEMORIA_PADRAO, type MotorNome, type Persona } from './personas.ts';
+import { buscar, resumo as resumoDaMemoria } from './memoria.ts';
 import { acharPessoa, arestas, delegaveis, lerDelegacoes, mencionada, ordemDaRodada, predecessores, semNos, type Delegacao } from './turnos.ts';
 
 /**
@@ -82,6 +83,8 @@ export interface Mensagem {
   arquivo?: string;
   /** Pós-fluxo: a outra conversa (a disparada, ou a de origem). */
   link?: { diagrama: string; conversa: string };
+  /** A memória respondendo a um RECORDAR: entra na transcrição (as atualizações da memória não). */
+  recordacao?: boolean;
   uso?: Uso;
 }
 
@@ -171,6 +174,8 @@ interface Viva {
   memoriaVista: Map<string, number>;
   /** De onde a memória começa a ouvir numa conversa carregada do disco. */
   memoriaDesde: number;
+  /** Quem já recebeu o resumo da memória nesta conversa (só na primeira vez). */
+  jaResumido: Set<string>;
   sintetizarJa: boolean;
   turnos: number;
   execucao: Promise<void>;
@@ -210,7 +215,7 @@ export function createConversas(opts: OpcoesConversas) {
     let v = vivas.get(id);
     if (!v) {
       const dados = carregar(id);
-      v = { dados, memoriaVista: new Map(), memoriaDesde: dados.mensagens.length, parar: new AbortController(), chamadas: [], esperas: new Map(), sintetizarJa: false, turnos: 0, execucao: Promise.resolve(), emAndamento: new Map() };
+      v = { dados, jaResumido: new Set(), memoriaVista: new Map(), memoriaDesde: dados.mensagens.length, parar: new AbortController(), chamadas: [], esperas: new Map(), sintetizarJa: false, turnos: 0, execucao: Promise.resolve(), emAndamento: new Map() };
       vivas.set(id, v);
     }
     return v;
@@ -250,7 +255,7 @@ export function createConversas(opts: OpcoesConversas) {
 
   const transcricao = (c: Conversa) =>
     c.mensagens
-      .filter((m) => m.tipo !== 'sistema' && m.tipo !== 'erro' && m.tipo !== 'memoria')
+      .filter((m) => m.tipo !== 'sistema' && m.tipo !== 'erro' && (m.tipo !== 'memoria' || m.recordacao))
       .map((m) => `${m.tipo === 'usuario' ? 'Usuário' : m.nome}: ${m.texto}`)
       .join('\n\n');
 
@@ -426,8 +431,8 @@ export function createConversas(opts: OpcoesConversas) {
     const pedido = responde.length
       ? `Sua vez: responda a ${responde.map((r) => nomeDe(d, r)).join(' e ')}${responde.includes('usuario') ? ', que falou diretamente com você' : ''}.`
       : 'Sua vez: abra a conversa com a sua visão sobre o assunto.';
-    const r = await turno(v, id, { tipo: 'fala', respondendoA: responde, contexto: `Assunto: ${v.dados.assunto}${conversaAteAgora(v.dados)}\n\n${pedido}` });
-    if (r) registrar(v, mensagemDe(r, 'fala', { respondendoA: responde }));
+    const r = await turno(v, id, { tipo: 'fala', respondendoA: responde, contexto: `Assunto: ${v.dados.assunto}${conversaAteAgora(v.dados)}${memoriaPara(v, d, id)}\n\n${pedido}` });
+    if (r && !recordar(v, d, id, r, responde)) registrar(v, mensagemDe(r, 'fala', { respondendoA: responde }));
     await atualizarMemoria(v, 'fala');
     return r;
   };
@@ -468,6 +473,8 @@ export function createConversas(opts: OpcoesConversas) {
         await fala(v, seq[i]);
         if (v.sintetizarJa) break rodadas;
       }
+      // As chamadas da rodada (um RECORDAR, um pedido de mudança) fecham a rodada antes da memória.
+      await atenderChamadas(v);
       await atualizarMemoria(v, 'rodada');
     }
     v.posicao = undefined;
@@ -485,11 +492,12 @@ export function createConversas(opts: OpcoesConversas) {
     const alcance = delegaveis(rodada(d), id);
     const objetivo = topo ? '' : `\n\nObjetivo geral do grupo: ${v.dados.assunto}`;
 
+    const memo = memoriaPara(v, d, id);
     // Sem para quem delegar (e não sendo a orquestradora): executa e entrega.
     if (!alcance.length && !topo) {
       const r = await turno(v, id, {
         tipo: 'execucao',
-        contexto: `Tarefa delegada por ${quemPediu ?? 'a orquestradora'}: ${tarefa}${objetivo}\n\nEntregue o resultado completo, pronto para usar.`,
+        contexto: `Tarefa delegada por ${quemPediu ?? 'a orquestradora'}: ${tarefa}${objetivo}${memo}\n\nEntregue o resultado completo, pronto para usar.`,
       });
       if (!r) return undefined;
       registrar(v, mensagemDe(r, 'resultado', { pai }));
@@ -501,7 +509,7 @@ export function createConversas(opts: OpcoesConversas) {
       tipo: 'tarefa',
       delegaveis: alcance,
       contexto: [
-        `Tarefa${quemPediu ? ` delegada por ${quemPediu}` : ''}: ${tarefa}${objetivo}`,
+        `Tarefa${quemPediu ? ` delegada por ${quemPediu}` : ''}: ${tarefa}${objetivo}${memo}`,
         alcance.length
           ? `Você pode delegar partes para: ${nomes.join(', ')}. Para delegar, escreva uma linha por parte, exatamente assim:\nDELEGAR <nome>: <o que essa persona deve fazer>\nAs delegadas trabalham em paralelo e você recebe os resultados para consolidar. Se der para fazer sozinha, entregue o resultado direto, sem linhas DELEGAR.`
           : 'Entregue o resultado completo.',
@@ -589,6 +597,47 @@ export function createConversas(opts: OpcoesConversas) {
       registrar(v, mensagemDe(r, 'memoria', { texto: `Memória atualizada: ${contarItens(md)} ${contarItens(md) === 1 ? 'item' : 'itens'}.` }));
       v.memoriaVista.set(id, v.dados.mensagens.length);
     }
+  };
+
+  /**
+   * O resumo da memória (Decisões e Pendências) para quem está em `resumoPara` de alguma persona de
+   * memória, só na primeira vez dela na conversa, com o convite para o RECORDAR.
+   */
+  const memoriaPara = (v: Viva, d: Diagram, id: string) => {
+    const ms = memorias(d);
+    if (!ms.length || v.jaResumido.has(id)) return '';
+    const recebe = ms.some((m) => {
+      const p = opts.persona(m, nomeDe(d, m));
+      return p.resumoPara === 'todas' || p.resumoPara.includes(id);
+    });
+    if (!recebe) return '';
+    v.jaResumido.add(id);
+    const r = resumoDaMemoria(opts.lerMemoria?.() ?? '', ['Decisões', 'Pendências'], 1200);
+    if (!r) return '';
+    return `\n\nMemória do grupo (de conversas anteriores):\n${r}\n\nPara consultar algo mais na memória, escreva uma linha "RECORDAR: <pergunta>". Ao usar a memória, cite (memória: <sala>).`;
+  };
+
+  /**
+   * RECORDAR: <pergunta> na fala: a memória responde com os itens da busca (sem LLM) e a persona fala
+   * de novo, já com eles. Uma vez por vez (quem está respondendo à memória não pergunta de novo).
+   * Devolve true quando tratou a fala (registrou o resto, se houver).
+   */
+  const recordar = (v: Viva, d: Diagram, id: string, r: { resposta: Resposta; persona: Persona; turno: string }, responde: string[]) => {
+    const ms = memorias(d);
+    const perguntas = [...r.resposta.texto.matchAll(/^\s*RECORDAR:\s*(.+?)\s*$/gim)].map((m) => m[1]);
+    if (!ms.length || !perguntas.length || responde.some((x) => ms.includes(x))) return false;
+    const resto = r.resposta.texto.replace(/^\s*RECORDAR:.*$/gim, '').trim();
+    if (resto) registrar(v, mensagemDe(r, 'fala', { respondendoA: responde, texto: resto }));
+    const md = opts.lerMemoria?.() ?? '';
+    const vistos = new Set<string>();
+    const achados = perguntas.flatMap((q) => buscar(md, q, 5)).filter((a) => !vistos.has(a.texto) && vistos.add(a.texto));
+    const lista = perguntas.map((q) => `"${q}"`).join(', ');
+    const texto = achados.length
+      ? `Para ${r.persona.nome}, sobre ${lista}:\n${achados.map((a) => `- ${a.texto} (memória: ${a.sala})`).join('\n')}`
+      : `Não há nada na memória sobre ${lista}.`;
+    registrar(v, { tipo: 'memoria', nome: nomeDe(d, ms[0]), persona: ms[0], texto, respondendoA: [id], recordacao: true });
+    v.chamadas.push({ id, a: [ms[0]] });
+    return true;
   };
 
   // ---- saída ---------------------------------------------------------------------------
@@ -680,7 +729,7 @@ export function createConversas(opts: OpcoesConversas) {
       if (!d.nodes.length) throw new OpError(400, 'O diagrama não tem nenhuma persona: arraste um template para o canvas.');
 
       const dados: Conversa = { id: `c-${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`, diagrama: opts.diagrama, assunto, modo, rodadas, status: 'rodando', mensagens: [], criadaEm: agora(), atualizadaEm: agora(), ...(interno.origem ? { origem: interno.origem } : {}), ...(interno.profundidade ? { profundidade: interno.profundidade } : {}) };
-      const v: Viva = { dados, memoriaVista: new Map(), memoriaDesde: 0, parar: new AbortController(), chamadas: [], esperas: new Map(), sintetizarJa: false, turnos: 0, execucao: Promise.resolve(), emAndamento: new Map() };
+      const v: Viva = { dados, jaResumido: new Set(), memoriaVista: new Map(), memoriaDesde: 0, parar: new AbortController(), chamadas: [], esperas: new Map(), sintetizarJa: false, turnos: 0, execucao: Promise.resolve(), emAndamento: new Map() };
       vivas.set(dados.id, v);
       emitir(dados, { type: 'chat.inicio', assunto, modo, rodadas, ordem: ordem(d).map((id) => nomeDe(d, id)) });
       registrar(v, { tipo: 'usuario', nome: 'Você', texto: assunto });

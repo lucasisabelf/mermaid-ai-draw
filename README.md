@@ -116,6 +116,7 @@ Marque **Persona de memória (escuta e guarda)** no painel (no yaml: `memoria: t
 - **Não fala nas rodadas** e não recebe delegação. No fim de cada rodada (ou depois de cada fala: `quando: fala`), recebe as falas novas de quem escuta e devolve a memória atualizada, com as salas *Decisões, Fatos, Hipóteses, Pendências e Preferências do usuário*.
 - **Compacta:** junta os repetidos, troca o que foi superado e fica abaixo do tamanho-alvo (`limite`, padrão 4000 caracteres; se passar, ela compacta de novo).
 - **Persistente:** a memória fica em `diagrams/<diagrama>/memoria.md` e continua de uma conversa para a próxima.
+- **Compartilhar quando precisa:** quem está em **Resumo no início para** (`resumoPara`) recebe as Decisões e Pendências da memória na primeira vez que fala na conversa. Qualquer persona pode escrever `RECORDAR: <pergunta>`: a memória responde com os itens que combinam (busca por palavras, sem LLM, barata até no Ollama) e a persona fala de novo, já com eles. No MCP, a ferramenta `recordar(diagrama, pergunta)` faz a mesma busca.
 
 ## Os modos
 

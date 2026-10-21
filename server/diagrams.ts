@@ -165,6 +165,14 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
   };
 
   const personasDe = (slug: string) => new PersonaStore(path.join(folder(slug), 'personas'));
+  /** O memoria.md do diagrama ('' quando ainda não há). */
+  const lerMemoriaDe = (slug: string) => {
+    try {
+      return fs.readFileSync(path.join(folder(slug), 'memoria.md'), 'utf8');
+    } catch {
+      return '';
+    }
+  };
   const api = (slug: string): Api => {
     let a = apis.get(slug);
     if (!a) {
@@ -196,13 +204,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
           fs.mkdirSync(pasta, { recursive: true });
           fs.writeFileSync(path.join(pasta, arquivo), `${texto}\n`);
         },
-        lerMemoria: () => {
-          try {
-            return fs.readFileSync(path.join(folder(slug), 'memoria.md'), 'utf8');
-          } catch {
-            return '';
-          }
-        },
+        lerMemoria: () => lerMemoriaDe(slug),
         gravarMemoria: (md) => fs.writeFileSync(path.join(folder(slug), 'memoria.md'), `${md.trim()}\n`),
         iniciarOutro: (destino, entrada, interno) => {
           if (!isDiagram(destino)) fail(404, `Diagrama "${destino}" não encontrado.`);
@@ -595,7 +597,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
     listar: () => list(),
     abrir: (slug) => {
       if (!isDiagram(slug)) fail(404, `Diagrama "${slug}" não encontrado.`);
-      return { diagrama: api(slug).diagram(), personas: personasDoDiagrama(slug), conversas: ai(slug).conversas };
+      return { diagrama: api(slug).diagram(), personas: personasDoDiagrama(slug), conversas: ai(slug).conversas, memoria: () => lerMemoriaDe(slug) };
     },
   });
 

@@ -111,14 +111,17 @@ describe('parsePersona', () => {
 
   it('persona de memória: quem ela escuta, quando atualiza e o tamanho-alvo', () => {
     const comum = parsePersona('n1', CETICA, 'Cética');
-    expect(comum).toMatchObject({ memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000 });
-    expect(renderPersona(comum)).not.toMatch(/memoria|escuta|quando|limite/);
+    expect(comum).toMatchObject({ memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000, resumoPara: 'todas' });
+    expect(renderPersona(comum)).not.toMatch(/memoria|escuta|quando|limite|resumoPara/);
 
     const p = parsePersona('n7', 'Guarda.\n\n```yaml\nmemoria: true\nescuta: [n1, n3]\nquando: fala\nlimite: 2500\n```\n', 'Memória');
     expect(p).toMatchObject({ memoria: true, escuta: ['n1', 'n3'], quando: 'fala', limite: 2500 });
     expect(parsePersona('n7', renderPersona(p), 'Memória')).toEqual(p);
     expect(parsePersona('n7', 'x\n\n```yaml\nmemoria: true\nescuta: todas\n```\n', 'M').escuta).toBe('todas');
-    for (const ruim of ['memoria: sim', 'escuta: algumas', 'escuta: [../x]', 'quando: sempre', 'limite: 10']) {
+    expect(p.resumoPara).toBe('todas');
+    expect(parsePersona('n7', 'x\n\n```yaml\nmemoria: true\nresumoPara: [n1]\n```\n', 'M').resumoPara).toEqual(['n1']);
+    expect(parsePersona('n7', 'x\n\n```yaml\nmemoria: true\nresumoPara: []\n```\n', 'M').resumoPara).toEqual([]);
+    for (const ruim of ['memoria: sim', 'escuta: algumas', 'escuta: [../x]', 'quando: sempre', 'limite: 10', 'resumoPara: alguns']) {
       expect(() => parsePersona('n7', `x\n\n\`\`\`yaml\n${ruim}\n\`\`\`\n`, 'X'), ruim).toThrow(OpError);
     }
   });

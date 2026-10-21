@@ -70,6 +70,8 @@ export interface Persona {
   quando: 'rodada' | 'fala';
   /** Tamanho-alvo do memoria.md, em caracteres. */
   limite: number;
+  /** Quem recebe o resumo da memória no início ("todas" ou ids; [] = só consultam com RECORDAR). */
+  resumoPara: 'todas' | string[];
 }
 
 /** O memoria.md de um diagrama que ainda não tem: as salas do "palácio". */
@@ -96,9 +98,10 @@ export interface PosFluxo {
 
 const SLUG_DIAGRAMA_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-function lerEscuta(v: unknown): 'todas' | string[] {
+/** "todas" ou uma lista de ids de retângulos (quem a memória escuta, ou quem recebe o resumo dela). */
+function lerEscuta(campo: string, v: unknown): 'todas' | string[] {
   if (v === undefined || v === null || v === 'todas') return 'todas';
-  if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !ID_RE.test(x))) invalido('"escuta" deve ser "todas" ou a lista dos ids que a memória escuta (ex.: [n1, n3]).');
+  if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !ID_RE.test(x))) invalido(`"${campo}" deve ser "todas" ou uma lista de ids (ex.: [n1, n3]).`);
   return v as string[];
 }
 
@@ -212,7 +215,8 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
     aoVencer: umDe('aoVencer', y.aoVencer, ['seguir', 'encerrar'] as const, 'seguir'),
     ...(y.depois !== undefined ? { depois: lerPosFluxo(y.depois) } : {}),
     memoria: y.memoria === true,
-    escuta: lerEscuta(y.escuta),
+    escuta: lerEscuta('escuta', y.escuta),
+    resumoPara: lerEscuta('resumoPara', y.resumoPara),
     quando: umDe('quando', y.quando, ['rodada', 'fala'] as const, 'rodada'),
     limite: y.limite === undefined ? 4000 : (Number.isInteger(y.limite) && (y.limite as number) >= 200 ? (y.limite as number) : invalido('"limite" deve ser um número inteiro de caracteres, a partir de 200.')),
   };
@@ -232,6 +236,7 @@ export function renderPersona(p: Persona): string {
   if (p.escuta !== 'todas') opcoes.escuta = p.escuta;
   if (p.quando !== 'rodada') opcoes.quando = p.quando;
   if (p.limite !== 4000) opcoes.limite = p.limite;
+  if (p.resumoPara !== 'todas') opcoes.resumoPara = p.resumoPara;
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${stringify(opcoes)}\`\`\`\n`;
 }
 
@@ -382,5 +387,5 @@ export function carregarTemplates(dir: string): Template[] {
 }
 
 export function personaDoTemplate(t: Template, id: string, motor: MotorNome, nome = t.titulo): Persona {
-  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir', memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000 };
+  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir', memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000, resumoPara: 'todas' };
 }

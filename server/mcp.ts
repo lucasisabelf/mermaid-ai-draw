@@ -6,6 +6,7 @@ import type { Diagram } from '../src/model.ts';
 import type { Pedido, createConversas } from './conversa.ts';
 import type { MotorMcp } from './motores/mcp.ts';
 import type { Persona } from './personas.ts';
+import { buscar } from './memoria.ts';
 import { ordemDaRodada, semNos } from './turnos.ts';
 
 /**
@@ -18,6 +19,8 @@ export interface DiagramaParaMcp {
   diagrama: Diagram;
   personas: Persona[];
   conversas: ReturnType<typeof createConversas>;
+  /** O memoria.md do diagrama ('' sem memória). */
+  memoria: () => string;
 }
 
 export interface DepsMcp {
@@ -166,6 +169,15 @@ function servidor(deps: DepsMcp) {
       deps.abrir(diagrama).conversas.parar(conversa);
       return json({ ok: true });
     }),
+  );
+
+  s.registerTool(
+    'recordar',
+    {
+      description: 'Consulta a memória do diagrama (o memoria.md da persona de memória): devolve os itens que mais combinam com a pergunta, com a sala de cada um. Use ao dar voz a uma persona que precisa de algo de conversas anteriores.',
+      inputSchema: { diagrama: z.string(), pergunta: z.string() },
+    },
+    tocar(({ diagrama, pergunta }) => json({ itens: buscar(deps.abrir(diagrama).memoria(), pergunta, 5) })),
   );
 
   return s;

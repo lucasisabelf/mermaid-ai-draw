@@ -78,6 +78,7 @@ function montar(d: Diagram, personas: Record<string, Partial<Persona>>, motores:
     escuta: 'todas',
     quando: 'rodada',
     limite: 4000,
+    resumoPara: 'todas',
     ...personas[id],
   });
   const todos = { mcp: falso('mcp').motor, ollama: falso('ollama').motor, api: falso('api').motor, ...motores };
@@ -659,5 +660,55 @@ describe('persona de memória', () => {
     expect(mcp.pedidos.at(-1)!.tipo).toBe('memoria');
     expect(mcp.pedidos.at(-1)!.contexto).toContain('Orquestradora: Entrega.');
     expect(m.md).toBe('- entrega feita');
+  });
+});
+
+describe('memória compartilhada', () => {
+  const MD = '# Memória\n\n## Decisões\n- abrir no bairro (Moderadora · c0)\n\n## Fatos\n- aluguel caro no centro: R$ 12 mil (Cética · c0)\n\n## Pendências\n- custo da máquina (Cética · c0)\n';
+  const extra = (md: string) => ({ lerMemoria: () => md, gravarMemoria: () => {} });
+
+  it('quem está em resumoPara recebe, na primeira vez, o resumo das decisões e pendências', async () => {
+    const mcp = falso('mcp', (p) => ({ texto: p.tipo === 'memoria' ? MD : 'ok' }));
+    const d = diagrama([['a', 'A'], ['b', 'B'], ['m', 'Memória']], 'a>b b>a');
+    const conversas = montar(d, { m: { memoria: true, resumoPara: ['a'] } }, { mcp: mcp.motor }, undefined, extra(MD));
+    await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 2 }).id);
+    const deA = mcp.pedidos.filter((p) => p.persona.id === 'a');
+    const deB = mcp.pedidos.filter((p) => p.persona.id === 'b');
+    expect(deA[0].contexto).toContain('Memória do grupo');
+    expect(deA[0].contexto).toContain('abrir no bairro');
+    expect(deA[0].contexto).toContain('custo da máquina');
+    expect(deA[0].contexto).not.toContain('aluguel caro');
+    expect(deA[0].contexto).toMatch(/RECORDAR:/);
+    expect(deA[1].contexto).not.toContain('Memória do grupo');
+    expect(deB[0].contexto).not.toContain('Memória do grupo');
+  });
+
+  it('RECORDAR: a memória responde com os itens da busca e a persona fala de novo com eles', async () => {
+    let vez = 0;
+    const mcp = falso('mcp', (p) => {
+      if (p.tipo === 'memoria') return { texto: MD };
+      if (p.persona.id === 'a' && vez++ === 0) return { texto: 'Vou checar.\nRECORDAR: quanto custa o aluguel?' };
+      return { texto: `${p.persona.nome} responde` };
+    });
+    const d = diagrama([['a', 'A'], ['b', 'B'], ['m', 'Memória']], 'a>b');
+    const conversas = montar(d, { m: { memoria: true } }, { mcp: mcp.motor }, undefined, extra(MD));
+    const fim = await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    expect(falas(fim).slice(0, 4)).toEqual(['A:fala', 'Memória:memoria', 'A:fala', 'B:fala']);
+    expect(fim.mensagens[1].texto).toBe('Vou checar.');
+    expect(fim.mensagens[2]).toMatchObject({ persona: 'm', respondendoA: ['a'] });
+    expect(fim.mensagens[2].texto).toContain('aluguel caro no centro');
+    const segunda = mcp.pedidos.filter((p) => p.persona.id === 'a')[1];
+    expect(segunda.respondendoA).toEqual(['m']);
+    expect(segunda.contexto).toContain('aluguel caro no centro');
+  });
+
+  it('sem nada na memória sobre a pergunta, ela diz isso', async () => {
+    let vez = 0;
+    const mcp = falso('mcp', (p) => ({ texto: p.persona.id === 'a' && vez++ === 0 ? 'RECORDAR: previsão do tempo' : p.tipo === 'memoria' ? MD : 'ok' }));
+    const d = diagrama([['a', 'A'], ['m', 'Memória']], '');
+    const conversas = montar(d, { m: { memoria: true } }, { mcp: mcp.motor }, undefined, extra(MD));
+    const fim = await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    expect(falas(fim).slice(0, 2)).toEqual(['Memória:memoria', 'A:fala']);
+    expect(fim.mensagens[1].texto).toMatch(/nada na memória/i);
   });
 });
