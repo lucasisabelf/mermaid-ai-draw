@@ -364,7 +364,15 @@ export interface Template {
   /** O modelo de cada motor: é aqui que se configura o padrão. */
   modelos: Record<MotorNome, string>;
   prompt: string;
+  /** Persona especial (grupo à parte na paleta): memória, humana ou saída. */
+  especial?: 'memoria' | 'humana' | 'saida';
+  /** Os campos especiais do yaml do template (memoria, escuta, humana, saida, arquivo…). */
+  extras: Partial<Persona>;
+  /** Saída: o template do .md (templates/saidas/<nome>.md). */
+  templateSaida?: string;
 }
+
+const CAMPOS_ESPECIAIS = ['memoria', 'escuta', 'quando', 'limite', 'resumoPara', 'curadoria', 'humana', 'prazo', 'aoVencer', 'saida', 'arquivo', 'depois'] as const;
 
 export function carregarTemplates(dir: string): Template[] {
   let arquivos: string[] = [];
@@ -378,7 +386,15 @@ export function carregarTemplates(dir: string): Template[] {
     const { yaml, prompt } = partes(md);
     const y = lerYaml(yaml);
     const modelos = { ...MODELO_PADRAO, ...((y.modelos as Record<string, string> | undefined) ?? {}) };
+    // Os campos especiais passam pela mesma validação de uma persona.
+    const p = parsePersona('template', md, f);
+    const extras = Object.fromEntries(CAMPOS_ESPECIAIS.filter((k) => y[k] !== undefined).map((k) => [k, p[k]])) as Partial<Persona>;
+    const especial = p.memoria ? 'memoria' : p.humana ? 'humana' : p.saida ? 'saida' : undefined;
+    const arqSaida = path.join(dir, 'saidas', f);
     return {
+      ...(especial ? { especial } : {}),
+      extras,
+      ...(especial === 'saida' && fs.existsSync(arqSaida) ? { templateSaida: fs.readFileSync(arqSaida, 'utf8') } : {}),
       nome: f.slice(0, -3),
       titulo: /^\s*#\s*(.+)$/m.exec(md)?.[1].trim() ?? f.slice(0, -3),
       descricao: typeof y.descricao === 'string' ? y.descricao : '',
@@ -392,5 +408,6 @@ export function carregarTemplates(dir: string): Template[] {
 }
 
 export function personaDoTemplate(t: Template, id: string, motor: MotorNome, nome = t.titulo): Persona {
-  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir', memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000, resumoPara: 'todas', curadoria: false };
+  const base: Persona = { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir', memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000, resumoPara: 'todas', curadoria: false };
+  return { ...base, ...t.extras };
 }

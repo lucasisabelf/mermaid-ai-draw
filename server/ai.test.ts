@@ -287,6 +287,22 @@ describe('personas e templates pela API', () => {
     expect((await call('GET', `/d/${slug}/memoria`)).json.existe).toBe(false);
   });
 
+  it('paleta: as personas especiais (memória, você, saída) vêm à parte e nascem já configuradas', async () => {
+    const t = (await call('GET', '/templates')).json;
+    expect(t.especiais.map((e: any) => e.nome).sort()).toEqual(['memoria', 'saida-readme', 'voce']);
+    expect(t.papeis.map((p: any) => p.nome)).not.toContain('memoria');
+    const slug = (await call('POST', '/diagrams', { name: 'Especiais' })).json.slug;
+    const mem = (await call('POST', `/d/${slug}/templates/memoria`, { motor: 'ollama' })).json;
+    expect(mem.persona).toMatchObject({ memoria: true, motor: 'ollama', nome: 'Memória' });
+    const eu = (await call('POST', `/d/${slug}/templates/voce`, {})).json;
+    expect(eu.persona).toMatchObject({ humana: true });
+    const rd = (await call('POST', `/d/${slug}/templates/saida-readme`, { motor: 'mcp' })).json;
+    expect(rd.persona).toMatchObject({ saida: true, arquivo: 'README.md' });
+    const tpl = (await call('GET', `/d/${slug}/personas/${rd.node.id}/saida`)).json;
+    expect(tpl.padrao).toBe(false);
+    expect(tpl.template).toContain('# {{');
+  });
+
   it('mostra o status dos motores', async () => {
     const r = await call('GET', '/motores');
     expect(r.json.map((m: any) => [m.nome, m.ok])).toEqual([

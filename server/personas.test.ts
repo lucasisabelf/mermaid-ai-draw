@@ -205,4 +205,23 @@ describe('templates', () => {
     }
     expect(ts.find((t) => t.nome === 'orquestradora')!.papel).toBe('orquestradora');
   });
+
+  it('templates especiais: memória, você (humana) e saída README, com os campos aplicados na persona', () => {
+    const ts = carregarTemplates(path.join(import.meta.dirname, '..', 'templates'));
+    const por = (n: string) => ts.find((t) => t.nome === n)!;
+    expect(ts.filter((t) => t.especial).map((t) => [t.nome, t.especial]).sort()).toEqual([
+      ['memoria', 'memoria'],
+      ['saida-readme', 'saida'],
+      ['voce', 'humana'],
+    ]);
+    expect(por('cetica').especial).toBeUndefined();
+
+    expect(personaDoTemplate(por('memoria'), 'n1', 'mcp')).toMatchObject({ memoria: true, escuta: 'todas', motor: 'mcp' });
+    expect(personaDoTemplate(por('voce'), 'n2', 'mcp')).toMatchObject({ humana: true, nome: 'Você' });
+    const saida = personaDoTemplate(por('saida-readme'), 'n3', 'ollama');
+    expect(saida).toMatchObject({ saida: true, arquivo: 'README.md', motor: 'ollama', modelo: 'qwen2.5:3b' });
+    // A saída traz o template do arquivo (templates/saidas/<nome>.md), que não vira um papel da paleta.
+    expect(por('saida-readme').templateSaida).toContain('{{');
+    expect(ts.some((t) => t.nome === 'saidas')).toBe(false);
+  });
 });

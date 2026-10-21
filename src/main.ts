@@ -273,37 +273,42 @@ async function criarDoTemplate(motor: string, papel: string, at?: { x: number; y
 }
 canvas.onTemplate = (motor, papel, at) => void criarDoTemplate(motor, papel, at);
 
+type Papel = { nome: string; titulo: string; descricao: string; cor: string; modelos: Record<string, string> };
+
 fetch('/api/templates')
   .then((r) => r.json())
-  .then((t: { motores: { nome: string; titulo: string; descricao: string }[]; papeis: { nome: string; titulo: string; descricao: string; cor: string; modelos: Record<string, string> }[] }) => {
+  .then((t: { motores: { nome: string; titulo: string; descricao: string }[]; papeis: Papel[]; especiais?: (Papel & { especial: string })[] }) => {
     const host = $('#templates');
+    /** Um item da paleta: arrastar ou clicar cria o retângulo com a persona daquele papel, no motor dado. */
+    const item = (motor: string, papel: Papel, dica: string) => {
+      const tool = Object.assign(document.createElement('div'), { className: 'tool template', role: 'button', tabIndex: 0, draggable: true, title: dica });
+      tool.style.setProperty('--cor', papel.cor);
+      tool.innerHTML = '<span class="tpl-cor"></span><span class="tool-label"></span>';
+      tool.querySelector('.tool-label')!.textContent = papel.titulo;
+      tool.addEventListener('dragstart', (e) => {
+        e.dataTransfer!.setData(DND_TYPE, `tpl:${motor}:${papel.nome}`);
+        e.dataTransfer!.effectAllowed = 'copy';
+      });
+      tool.addEventListener('click', () => void criarDoTemplate(motor, papel.nome));
+      tool.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          void criarDoTemplate(motor, papel.nome);
+        }
+      });
+      return tool;
+    };
+    // Especiais: memória, você (humana) e saída. Nascem no MCP; o motor muda no painel.
+    if (t.especiais?.length) {
+      const grupo = Object.assign(document.createElement('details'), { className: 'tpl-grupo', open: true });
+      grupo.append(Object.assign(document.createElement('summary'), { textContent: 'Especiais', title: 'Personas com função própria: memória, você (humana) e saída' }));
+      for (const e of t.especiais) grupo.append(item('mcp', e, `${e.descricao}\nNasce no MCP: troque o motor no painel.`));
+      host.append(grupo);
+    }
     for (const m of t.motores) {
       const grupo = Object.assign(document.createElement('details'), { className: 'tpl-grupo', open: m.nome === 'mcp' });
       grupo.append(Object.assign(document.createElement('summary'), { textContent: m.titulo, title: m.descricao }));
-      for (const papel of t.papeis) {
-        const tool = Object.assign(document.createElement('div'), {
-          className: 'tool template',
-          role: 'button',
-          tabIndex: 0,
-          draggable: true,
-          title: `${papel.descricao}\n${m.titulo} · ${papel.modelos[m.nome]}`,
-        });
-        tool.style.setProperty('--cor', papel.cor);
-        tool.innerHTML = '<span class="tpl-cor"></span><span class="tool-label"></span>';
-        tool.querySelector('.tool-label')!.textContent = papel.titulo;
-        tool.addEventListener('dragstart', (e) => {
-          e.dataTransfer!.setData(DND_TYPE, `tpl:${m.nome}:${papel.nome}`);
-          e.dataTransfer!.effectAllowed = 'copy';
-        });
-        tool.addEventListener('click', () => void criarDoTemplate(m.nome, papel.nome));
-        tool.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            void criarDoTemplate(m.nome, papel.nome);
-          }
-        });
-        grupo.append(tool);
-      }
+      for (const papel of t.papeis) grupo.append(item(m.nome, papel, `${papel.descricao}\n${m.titulo} · ${papel.modelos[m.nome]}`));
       host.append(grupo);
     }
   })

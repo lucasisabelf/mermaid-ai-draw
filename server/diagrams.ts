@@ -471,7 +471,8 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
       if (resource === 'templates' && parts.length === 1 && method === 'GET') {
         return send(res, 200, {
           motores: MOTORES.map((m) => ({ nome: m, ...TITULO_MOTOR[m] })),
-          papeis: carregarTemplates(templatesDir),
+          papeis: carregarTemplates(templatesDir).filter((t) => !t.especial),
+          especiais: carregarTemplates(templatesDir).filter((t) => t.especial),
         });
       }
       if (resource === 'motores' && parts.length === 1 && method === 'GET') {
@@ -560,6 +561,7 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
       if (ev.type !== 'node.added') fail(400, 'Não consegui criar o retângulo.');
       const persona = personaDoTemplate(t, ev.node.id, motor, ev.node.text);
       personas.gravar(persona);
+      if (t.templateSaida) personas.gravarTemplate(persona.id, t.templateSaida);
       a.broadcast({ type: 'persona.atualizada', id: persona.id, persona, source });
       return send(res, 201, { node: ev.node, persona });
     }
