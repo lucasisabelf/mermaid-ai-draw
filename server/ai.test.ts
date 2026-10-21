@@ -224,6 +224,17 @@ describe('personas e templates pela API', () => {
     expect(outra.mensagens.map((m: any) => `${m.nome}:${m.tipo}`)).toEqual(['Você:usuario', 'Conversa:sistema', 'Otimista:fala']);
   });
 
+  it('persona de memória: escuta a conversa e grava o memoria.md do diagrama', async () => {
+    const { slug, ids } = await montar('Memória', [['otimista', 'ollama'], ['cetica', 'ollama'], ['moderadora', 'ollama']], ['0>1']);
+    const md = (await call('GET', `/d/${slug}/personas/${ids[2]}`)).json.markdown as string;
+    expect((await call('PUT', `/d/${slug}/personas/${ids[2]}`, md.replace('```yaml\n', '```yaml\nmemoria: true\nescuta: [' + ids[0] + ']\n'))).json.persona).toMatchObject({ memoria: true, escuta: [ids[0]] });
+    const id = (await call('POST', `/d/${slug}/conversas`, { assunto: 'Lançar?', modo: 'debate', rodadas: 1 })).json.id;
+    for (let i = 0; i < 50 && (await call('GET', `/d/${slug}/conversas/${id}`)).json.status !== 'terminada'; i++) await new Promise((x) => setTimeout(x, 20));
+    const fim = (await call('GET', `/d/${slug}/conversas/${id}`)).json;
+    expect(fim.mensagens.map((m: any) => `${m.nome}:${m.tipo}`)).toEqual(['Você:usuario', 'Otimista:fala', 'Cética:fala', 'Moderadora:memoria']);
+    expect(fs.readFileSync(path.join(dir, slug, 'memoria.md'), 'utf8')).toBe('Moderadora (ollama)\n');
+  });
+
   it('mostra o status dos motores', async () => {
     const r = await call('GET', '/motores');
     expect(r.json.map((m: any) => [m.nome, m.ok])).toEqual([

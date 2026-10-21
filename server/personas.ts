@@ -62,7 +62,29 @@ export interface Persona {
   aoVencer: 'seguir' | 'encerrar';
   /** Pós-fluxo (persona de saída): o diagrama que começa quando ela termina, com o .md como assunto. */
   depois?: PosFluxo;
+  /** Persona de memória: escuta as personas (sem setas) e mantém o memoria.md do diagrama. */
+  memoria: boolean;
+  /** Quem a memória escuta: "todas" ou os ids dos retângulos. */
+  escuta: 'todas' | string[];
+  /** Quando ela atualiza: no fim de cada rodada ou depois de cada fala escutada. */
+  quando: 'rodada' | 'fala';
+  /** Tamanho-alvo do memoria.md, em caracteres. */
+  limite: number;
 }
+
+/** O memoria.md de um diagrama que ainda não tem: as salas do "palácio". */
+export const MEMORIA_PADRAO = `# Memória
+
+## Decisões
+
+## Fatos
+
+## Hipóteses
+
+## Pendências
+
+## Preferências do usuário
+`;
 
 export interface PosFluxo {
   diagrama: string;
@@ -73,6 +95,12 @@ export interface PosFluxo {
 }
 
 const SLUG_DIAGRAMA_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+function lerEscuta(v: unknown): 'todas' | string[] {
+  if (v === undefined || v === null || v === 'todas') return 'todas';
+  if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !ID_RE.test(x))) invalido('"escuta" deve ser "todas" ou a lista dos ids que a memória escuta (ex.: [n1, n3]).');
+  return v as string[];
+}
 
 function lerPosFluxo(v: unknown): PosFluxo | undefined {
   if (v === undefined || v === null) return undefined;
@@ -162,6 +190,7 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
   if (y.saida !== undefined && typeof y.saida !== 'boolean') invalido('"saida" deve ser true ou false.');
   if (y.humana !== undefined && typeof y.humana !== 'boolean') invalido('"humana" deve ser true ou false.');
   if (y.prazo !== undefined && (typeof y.prazo !== 'number' || !(y.prazo > 0))) invalido('"prazo" deve ser um número de minutos maior que zero.');
+  if (y.memoria !== undefined && typeof y.memoria !== 'boolean') invalido('"memoria" deve ser true ou false.');
   if (y.arquivo !== undefined && (typeof y.arquivo !== 'string' || !ARQUIVO_RE.test(y.arquivo) || y.arquivo.includes('..'))) {
     invalido('"arquivo" deve ser só o nome de um .md, como "README.md".');
   }
@@ -182,6 +211,10 @@ export function parsePersona(id: string, md: string, nome: string): Persona {
     ...(y.prazo !== undefined ? { prazo: y.prazo as number } : {}),
     aoVencer: umDe('aoVencer', y.aoVencer, ['seguir', 'encerrar'] as const, 'seguir'),
     ...(y.depois !== undefined ? { depois: lerPosFluxo(y.depois) } : {}),
+    memoria: y.memoria === true,
+    escuta: lerEscuta(y.escuta),
+    quando: umDe('quando', y.quando, ['rodada', 'fala'] as const, 'rodada'),
+    limite: y.limite === undefined ? 4000 : (Number.isInteger(y.limite) && (y.limite as number) >= 200 ? (y.limite as number) : invalido('"limite" deve ser um número inteiro de caracteres, a partir de 200.')),
   };
 }
 
@@ -195,6 +228,10 @@ export function renderPersona(p: Persona): string {
   if (p.prazo !== undefined) opcoes.prazo = p.prazo;
   if (p.aoVencer !== 'seguir') opcoes.aoVencer = p.aoVencer;
   if (p.depois) opcoes.depois = p.depois;
+  if (p.memoria) opcoes.memoria = true;
+  if (p.escuta !== 'todas') opcoes.escuta = p.escuta;
+  if (p.quando !== 'rodada') opcoes.quando = p.quando;
+  if (p.limite !== 4000) opcoes.limite = p.limite;
   return `# ${p.nome}\n\n${p.prompt.trim()}\n\n\`\`\`yaml\n${stringify(opcoes)}\`\`\`\n`;
 }
 
@@ -345,5 +382,5 @@ export function carregarTemplates(dir: string): Template[] {
 }
 
 export function personaDoTemplate(t: Template, id: string, motor: MotorNome, nome = t.titulo): Persona {
-  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir' };
+  return { id, nome, prompt: t.prompt, motor, modelo: t.modelos[motor], esforco: t.esforco, papel: t.papel, cor: t.cor, ferramentas: [], inicio: false, saida: false, arquivo: 'saida.md', humana: false, aoVencer: 'seguir', memoria: false, escuta: 'todas', quando: 'rodada', limite: 4000 };
 }

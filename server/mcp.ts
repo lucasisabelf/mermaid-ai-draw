@@ -38,6 +38,7 @@ const COMO: Record<Pedido['tipo'], string> = {
     'Decida como fazer a tarefa. Para delegar, chame responder com `delegacoes: [{para, tarefa}]` (só para as delegáveis) e um texto curto com o plano; as delegadas viram novos turnos (em paralelo: dá para usar um subagente por turno) e depois vem um turno "consolidar". Se fizer sozinha, responda com o resultado direto, sem delegações.',
   execucao: 'Faça a tarefa delegada e chame responder(turno, texto) com o resultado completo.',
   consolidar: 'Junte os resultados do contexto numa entrega final única e chame responder(turno, texto).',
+  memoria: 'Atualize a memória do grupo com as falas novas do contexto (mantenha as salas, junte repetidos, respeite o tamanho) e chame responder(turno, texto) só com o markdown da memória.',
   saida: 'Preencha o template de saída do contexto com o resultado da conversa (mantenha os títulos) e chame responder(turno, texto) só com o markdown preenchido.',
 };
 
@@ -75,7 +76,7 @@ function servidor(deps: DepsMcp) {
       const { diagrama: d, personas } = deps.abrir(diagrama);
       const nome = (id: string) => d.nodes.find((n) => n.id === id)?.text ?? id;
       return json({
-        personas: personas.map((p) => ({ id: p.id, nome: p.nome, motor: p.motor, modelo: p.modelo, papel: p.papel, inicio: p.inicio, saida: p.saida, arquivo: p.saida ? p.arquivo : undefined, humana: p.humana })),
+        personas: personas.map((p) => ({ id: p.id, nome: p.nome, motor: p.motor, modelo: p.modelo, papel: p.papel, inicio: p.inicio, saida: p.saida, arquivo: p.saida ? p.arquivo : undefined, humana: p.humana, memoria: p.memoria, escuta: p.memoria ? p.escuta : undefined })),
         setas: d.edges.filter((e) => e.from !== e.to).map((e) => `${nome(e.from)} → ${nome(e.to)}`),
       });
     }),

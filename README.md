@@ -109,6 +109,14 @@ Marque **Persona humana (a conversa espera você)** no painel (no yaml: `humana:
 - **Aviso:** o título da aba pisca e, com permissão, chega uma notificação.
 - **MCP:** o Claude Code nunca recebe essa vez.
 
+### Persona de memória
+
+Marque **Persona de memória (escuta e guarda)** no painel (no yaml: `memoria: true`). Ela é o "fofoqueiro" do grupo:
+- **Sem setas:** quem ela escuta fica na lista **Escuta:** do painel ("todas" ou personas específicas; no yaml, `escuta: [n1, n3]`), para não poluir o canvas.
+- **Não fala nas rodadas** e não recebe delegação. No fim de cada rodada (ou depois de cada fala: `quando: fala`), recebe as falas novas de quem escuta e devolve a memória atualizada, com as salas *Decisões, Fatos, Hipóteses, Pendências e Preferências do usuário*.
+- **Compacta:** junta os repetidos, troca o que foi superado e fica abaixo do tamanho-alvo (`limite`, padrão 4000 caracteres; se passar, ela compacta de novo).
+- **Persistente:** a memória fica em `diagrams/<diagrama>/memoria.md` e continua de uma conversa para a próxima.
+
 ## Os modos
 
 | Modo | O que acontece |

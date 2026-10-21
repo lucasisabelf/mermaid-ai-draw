@@ -1461,3 +1461,28 @@ button.icon {
 .pp-depois[hidden] {
   display: none;
 }
+
+/* Persona de memória: a lista de quem ela escuta e a mensagem compacta no chat. */
+.pp-escuta-titulo {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pp-escuta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.pp-escuta .pp-inicio {
+  margin-bottom: 0;
+}
+
+.msg.tipo-memoria {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-style: dotted;
+  opacity: 0.85;
+}

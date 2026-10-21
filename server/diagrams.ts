@@ -196,6 +196,14 @@ export function createDiagrams(dir: string, options: WorkspaceOptions = {}) {
           fs.mkdirSync(pasta, { recursive: true });
           fs.writeFileSync(path.join(pasta, arquivo), `${texto}\n`);
         },
+        lerMemoria: () => {
+          try {
+            return fs.readFileSync(path.join(folder(slug), 'memoria.md'), 'utf8');
+          } catch {
+            return '';
+          }
+        },
+        gravarMemoria: (md) => fs.writeFileSync(path.join(folder(slug), 'memoria.md'), `${md.trim()}\n`),
         iniciarOutro: (destino, entrada, interno) => {
           if (!isDiagram(destino)) fail(404, `Diagrama "${destino}" não encontrado.`);
           return ai(destino).conversas.iniciar(entrada, interno);

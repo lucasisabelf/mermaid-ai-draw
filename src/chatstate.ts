@@ -3,7 +3,7 @@
  * chat.mensagem, chat.fim) ou de uma conversa salva. Funções puras: o painel só desenha o resultado.
  */
 
-export type TipoMensagem = 'usuario' | 'fala' | 'sintese' | 'tarefa' | 'resultado' | 'saida' | 'erro' | 'sistema';
+export type TipoMensagem = 'usuario' | 'fala' | 'sintese' | 'tarefa' | 'resultado' | 'saida' | 'memoria' | 'erro' | 'sistema';
 
 export interface MensagemView {
   id: string;

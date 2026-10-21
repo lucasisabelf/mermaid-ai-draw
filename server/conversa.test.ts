@@ -74,6 +74,10 @@ function montar(d: Diagram, personas: Record<string, Partial<Persona>>, motores:
     arquivo: 'saida.md',
     humana: false,
     aoVencer: 'seguir',
+    memoria: false,
+    escuta: 'todas',
+    quando: 'rodada',
+    limite: 4000,
     ...personas[id],
   });
   const todos = { mcp: falso('mcp').motor, ollama: falso('ollama').motor, api: falso('api').motor, ...motores };
@@ -563,5 +567,97 @@ describe('pós-fluxo', () => {
     expect(f3.status).toBe('terminada');
     expect(f3.mensagens.at(-1)).toMatchObject({ tipo: 'erro' });
     expect(f3.mensagens.at(-1)!.texto).toMatch(/não encontrado/);
+  });
+});
+
+describe('persona de memória', () => {
+  /** A memória do diagrama, como o diagrams.ts guarda (memoria.md). */
+  function comMemoria(inicial = '') {
+    const m = { md: inicial, gravacoes: [] as { md: string; conversa: string }[] };
+    return {
+      m,
+      extra: {
+        lerMemoria: () => m.md,
+        gravarMemoria: (md: string, conversa: string) => {
+          m.md = md;
+          m.gravacoes.push({ md, conversa });
+        },
+      },
+    };
+  }
+  const memo = (texto: (p: Pedido) => string) => falso('mcp', (p) => ({ texto: p.tipo === 'memoria' ? texto(p) : `${p.persona.nome} fala ${p.contexto.length}` }));
+
+  it('escuta no fim de cada rodada só as falas novas, grava o .md e não fala nas rodadas', async () => {
+    const mcp = memo(() => '## Decisões\n- abrir no bairro (A · c1)\n- validar custos (B · c1)');
+    const { m, extra } = comMemoria();
+    const d = diagrama([['a', 'A'], ['b', 'B'], ['m', 'Memória']], 'a>b');
+    const conversas = montar(d, { m: { memoria: true } }, { mcp: mcp.motor }, undefined, extra);
+    const c = conversas.iniciar({ assunto: 'Cafeteria?', modo: 'debate', rodadas: 2 });
+    const fim = await conversas.esperar(c.id);
+
+    expect(eventos[0].ordem).toEqual(['A', 'B']);
+    expect(mcp.pedidos.map((p) => p.tipo)).toEqual(['fala', 'fala', 'memoria', 'fala', 'fala', 'memoria']);
+    expect(falas(fim)).toEqual(['A:fala', 'B:fala', 'Memória:memoria', 'A:fala', 'B:fala', 'Memória:memoria']);
+    expect(fim.mensagens.at(-1)!.texto).toBe('Memória atualizada: 2 itens.');
+    const [m1, m2] = mcp.pedidos.filter((p) => p.tipo === 'memoria');
+    // A primeira começa do modelo das salas e ouve o assunto e a 1ª rodada; a segunda, só a 2ª rodada.
+    expect(m1.contexto).toContain('## Decisões');
+    expect(m1.contexto).toContain('Usuário: Cafeteria?');
+    expect(m2.contexto).toContain('abrir no bairro');
+    expect(m2.contexto).not.toContain('Usuário: Cafeteria?');
+    expect(m1.system).toMatch(/memória/i);
+    expect(m.gravacoes).toHaveLength(2);
+    expect(m.gravacoes[0].conversa).toBe(c.id);
+    // As mensagens de memória ficam fora do que as outras personas leem.
+    expect(mcp.pedidos[3].contexto).not.toContain('Memória atualizada');
+  });
+
+  it('escuta só as personas marcadas; com "fala", atualiza depois de cada uma', async () => {
+    const mcp = memo(() => '- item');
+    const { extra } = comMemoria();
+    const d = diagrama([['a', 'A'], ['b', 'B'], ['m', 'Memória']], 'a>b');
+    const conversas = montar(d, { m: { memoria: true, escuta: ['a'], quando: 'fala' } }, { mcp: mcp.motor }, undefined, extra);
+    await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    const memorias = mcp.pedidos.filter((p) => p.tipo === 'memoria');
+    // Só depois da fala de A (B não é escutada, então a fala dele não gera atualização).
+    expect(mcp.pedidos.map((p) => p.tipo)).toEqual(['fala', 'memoria', 'fala']);
+    expect(memorias[0].contexto).toContain('A: A fala');
+    expect(memorias[0].contexto).not.toContain('B: B fala');
+  });
+
+  it('a memória continua entre conversas do mesmo diagrama', async () => {
+    const mcp = memo((p) => (p.contexto.includes('lembrança antiga') ? '- lembrança antiga\n- nova' : '- primeira'));
+    const { m, extra } = comMemoria('## Fatos\n- lembrança antiga (A · c0)\n');
+    const d = diagrama([['a', 'A'], ['m', 'Memória']], '');
+    const conversas = montar(d, { m: { memoria: true } }, { mcp: mcp.motor }, undefined, extra);
+    await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    expect(m.md).toBe('- lembrança antiga\n- nova');
+  });
+
+  it('passou do tamanho-alvo: pede para compactar uma vez', async () => {
+    const mcp = memo((p) => (p.contexto.includes('Compacte') ? '- curto' : `- ${'x'.repeat(200)}`));
+    const { m, extra } = comMemoria();
+    const d = diagrama([['a', 'A'], ['m', 'Memória']], '');
+    const conversas = montar(d, { m: { memoria: true, limite: 100 } }, { mcp: mcp.motor }, undefined, extra);
+    await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'debate', rodadas: 1 }).id);
+    expect(mcp.pedidos.filter((p) => p.tipo === 'memoria')).toHaveLength(2);
+    expect(m.md).toBe('- curto');
+  });
+
+  it('na tarefa, não é delegável e atualiza no fim', async () => {
+    const mcp = falso('mcp', (p) => {
+      if (p.tipo === 'tarefa') return { texto: 'DELEGAR Pesquisadora: dados' };
+      if (p.tipo === 'consolidar') return { texto: 'Entrega.' };
+      if (p.tipo === 'memoria') return { texto: '- entrega feita' };
+      return { texto: 'dados' };
+    });
+    const { m, extra } = comMemoria();
+    const d = diagrama([['o', 'Orquestradora'], ['p', 'Pesquisadora'], ['m', 'Memória']], 'o>p o>m');
+    const conversas = montar(d, { o: { papel: 'orquestradora' }, m: { memoria: true } }, { mcp: mcp.motor }, undefined, extra);
+    await conversas.esperar(conversas.iniciar({ assunto: 'x', modo: 'tarefa' }).id);
+    expect(mcp.pedidos[0].delegaveis.map((x) => x.nome)).toEqual(['Pesquisadora']);
+    expect(mcp.pedidos.at(-1)!.tipo).toBe('memoria');
+    expect(mcp.pedidos.at(-1)!.contexto).toContain('Orquestradora: Entrega.');
+    expect(m.md).toBe('- entrega feita');
   });
 });

@@ -25,7 +25,7 @@ export interface ChatDeps {
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
-const ROTULO: Record<string, string> = { sintese: 'síntese', tarefa: 'plano', resultado: 'resultado', saida: 'saída', erro: 'erro', sistema: '' };
+const ROTULO: Record<string, string> = { sintese: 'síntese', tarefa: 'plano', resultado: 'resultado', saida: 'saída', memoria: 'memória', erro: 'erro', sistema: '' };
 
 const escapar = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 

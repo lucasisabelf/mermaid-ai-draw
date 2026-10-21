@@ -108,6 +108,22 @@
           <label class="pp-inicio" title="É você: na vez dela, a conversa pausa e espera a sua resposta no chat (Aprovar, Pedir mudança ou Encerrar). Não usa motor.">
             <input type="checkbox" id="pp-humana" /> Persona humana (a conversa espera você)
           </label>
+          <label class="pp-inicio" title="Não fala nas rodadas: escuta as personas marcadas abaixo (sem setas) e mantém o memoria.md do diagrama, reaproveitado nas próximas conversas.">
+            <input type="checkbox" id="pp-memoria" /> Persona de memória (escuta e guarda)
+          </label>
+          <div class="pp-depois" id="pp-memoria-box" hidden>
+            <div class="pp-escuta-titulo">Escuta:</div>
+            <div class="pp-escuta" id="pp-escuta"></div>
+            <div class="pp-saida">
+              <label>Atualiza
+                <select id="pp-quando">
+                  <option value="rodada">no fim de cada rodada</option>
+                  <option value="fala">depois de cada fala</option>
+                </select>
+              </label>
+              <label>Tamanho (caracteres) <input id="pp-limite" type="number" min="200" step="100" value="4000" /></label>
+            </div>
+          </div>
           <div class="pp-saida" id="pp-humana-box" hidden>
             <label>Prazo (min) <input id="pp-prazo" type="number" min="1" step="1" placeholder="sem prazo" /></label>
             <label>Ao vencer
