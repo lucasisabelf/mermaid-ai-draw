@@ -147,6 +147,7 @@ Importe pelo menu ☰ → **Importar**:
 - [`examples/debate-misto.zip`](examples/debate-misto.zip): os três motores no mesmo debate (Otimista no Ollama, Cética na API e Moderadora no MCP). Sem o Ollama ou sem a chave, a persona daquele motor aparece como erro no chat, e as outras continuam.
 - [`examples/debate-times-mcp.zip`](examples/debate-times-mcp.zip): debate estruturado Time A vs Time B. A Moderadora abre, os dois times defendem as suas posições e fazem réplicas cruzadas, e a Moderadora fecha com a síntese. Tudo no MCP (`claude-opus-5-5`).
 - [`examples/debate-times-ollama.zip`](examples/debate-times-ollama.zip): o mesmo debate, 100% local no Ollama (`qwen2.5:3b`).
+- [`examples/fluxo-com-memoria.zip`](examples/fluxo-com-memoria.zip): as três peças juntas. Otimista e Cética (Ollama) debatem com **Você** no meio (persona humana, com prazo de 30 min). A **Memória** (MCP) escuta todas e guarda o que vale para a próxima vez, e o **Resumo** (persona de saída) gera o `resumo.md` e dispara o pós-fluxo no `tarefa-lancar-um-app` (importe também o `tarefa-lancamento.zip`).
 
 Os `.zip` levam as personas junto.
 
