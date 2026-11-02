@@ -450,4 +450,4 @@ server/diagrams.ts vários diagramas (uma pasta cada), a API da lista e o plugin
 
 ## Licença
 
-MIT
+MIT — veja [LICENSE](LICENSE).
